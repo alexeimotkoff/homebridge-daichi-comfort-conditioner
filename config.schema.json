@@ -1,0 +1,29 @@
+{
+  "pluginAlias": "DaichiComfortConditionerHomebridgePlugin",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "required": true,
+        "default": "Daichi Comfort"
+      },
+      "username": {
+        "title": "E-mail",
+        "type": "string",
+        "required": true
+      },
+      "password": {
+        "title": "Password",
+        "type": "string",
+        "required": true,
+        "x-schema-form": {
+          "type": "password"
+        }
+      }
+    }
+  }
+}
