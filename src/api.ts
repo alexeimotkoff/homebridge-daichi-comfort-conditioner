@@ -1,11 +1,11 @@
 import axios from 'axios';
 import {Logger} from 'homebridge';
-import {MqttUser} from './mqttUser';
-import {CtrlMode} from './ctrlMode';
+import {MqttUser} from './models/mqttUser';
+import {CtrlMode} from './models/ctrlMode';
 import {
     DaichiInfoDevice,
     DaichiInfoCtrlModel,
-} from './deviceModel';
+} from './models/deviceModel';
 
 axios.defaults.baseURL = 'https://web.daichicloud.ru/api/v4/';
 

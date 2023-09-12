@@ -10,13 +10,13 @@ import {
 } from 'homebridge';
 
 import {DaichiComfortHomebridgePlatform} from './platform';
-import {DevState} from './devState';
-import {CtrlMode} from './ctrlMode';
+import {DevState} from './models/devState';
+import {CtrlMode} from './models/ctrlMode';
 import {
     DaichiInfoModel,
     Device,
     PultFunction,
-} from './deviceModel';
+} from './models/deviceModel';
 import {
     MqttClient,
     connect,

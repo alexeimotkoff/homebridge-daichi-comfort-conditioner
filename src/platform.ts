@@ -17,7 +17,7 @@ export class DaichiComfortHomebridgePlatform implements DynamicPlatformPlugin {
     // this is used to track restored cached accessories
     public readonly accessories: PlatformAccessory[] = [];
 
-    protected httpApi: HttpApi;
+    protected httpApi!: HttpApi;
     public getCtrlApi(){
         return this.httpApi;
     }
@@ -27,6 +27,18 @@ export class DaichiComfortHomebridgePlatform implements DynamicPlatformPlugin {
       public readonly config: PlatformConfig,
       public readonly api: API,
     ) {
+        if (!this.config) {
+            this.log.info('No config found in configuration file, disabling plugin.');
+            return;
+        }
+      
+        if (this.config.username === undefined ||
+            this.config.password === undefined ||
+            this.config.name === undefined){
+                this.log.error('Missing required config parameter.');
+                return;
+        }
+
         this.log.debug('Finished initializing platform:', this.config.name);
 
         this.httpApi = new HttpApi(this.config.username, this.config.password, this.log);
@@ -58,6 +70,11 @@ export class DaichiComfortHomebridgePlatform implements DynamicPlatformPlugin {
 
         await this.httpApi.login();
         const devices = await this.httpApi.getDevices() ?? [];
+
+        if(devices === undefined || devices.length === 0){
+            this.log.info('Devices not found');
+            return;
+        }
 
         // loop over the discovered devices and register each one if it has not already been registered
         for (const device of devices) {
