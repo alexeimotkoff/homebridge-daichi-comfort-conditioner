@@ -8,7 +8,6 @@ import {
     CharacteristicSetCallback,
     CharacteristicGetCallback,
 } from 'homebridge';
-
 import {DaichiComfortHomebridgePlatform} from './platform';
 import {DevState} from './models/devState';
 import {CtrlMode} from './models/ctrlMode';
@@ -133,7 +132,7 @@ export class DaichiComfortPlatformAccessory {
         const deviceId = this.dev.id;
         const functionId = this.functionsDict.get(cmd)?.id;
         if(functionId){
-            const commandParameters = `Command parameters: cmd = ${CtrlMode[cmd]}, val = ${val}, functionId = ${functionId}, deviceId = ${deviceId}`;
+            const commandParameters = `ctrl: Result unknown with command parameters: cmd = ${CtrlMode[cmd]}, val = ${val}, functionId = ${functionId}, deviceId = ${deviceId}`;
             this.platform.log.debug(commandParameters);
             const result = await this.platform.getCtrlApi().controlDevice(deviceId, cmd, functionId, val, 2);
             if(result){
@@ -144,6 +143,8 @@ export class DaichiComfortPlatformAccessory {
             } else{
                 this.platform.log.error(commandParameters);
             }
+        } else{
+            this.platform.log.error('ctrl: Unknown functionId');
         }
     }
 

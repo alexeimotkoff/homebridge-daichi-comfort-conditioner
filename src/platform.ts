@@ -68,7 +68,6 @@ export class DaichiComfortHomebridgePlatform implements DynamicPlatformPlugin {
     }
 
     async discoverDevices() {
-
         await this.httpApi.login();
         let devices = (await this.httpApi.getDevices() ?? []).filter(x => x?.data?.serial);
 
@@ -111,7 +110,6 @@ export class DaichiComfortHomebridgePlatform implements DynamicPlatformPlugin {
 
             // link the accessory to your platform
             this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-
         }
     }
 }
