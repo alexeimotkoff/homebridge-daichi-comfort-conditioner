@@ -31,6 +31,7 @@ export class HttpApi {
             this.apiToken = resp.data?.data?.access_token;
             if(!this.apiToken){
                 this.log.error('login: Unauthorized! Invalid token');
+                return;
             }
             this.log.info('logged in');
             await this.setMqttUserInfo();

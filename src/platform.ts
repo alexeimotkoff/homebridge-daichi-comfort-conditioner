@@ -3,6 +3,7 @@ import {API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, S
 import {PLATFORM_NAME, PLUGIN_NAME} from './settings';
 import {DaichiComfortPlatformAccessory} from './platformAccessory';
 import {HttpApi} from './api';
+import {ConfigDevice} from './models/configModel';
 
 
 /**
@@ -69,7 +70,14 @@ export class DaichiComfortHomebridgePlatform implements DynamicPlatformPlugin {
     async discoverDevices() {
 
         await this.httpApi.login();
-        const devices = await this.httpApi.getDevices() ?? [];
+        let devices = (await this.httpApi.getDevices() ?? []).filter(x => x?.data?.serial);
+
+        const configDeviceNames = (this.config?.devices as ConfigDevice[])
+            ?.filter(x => x?.name)
+            .map(x => x.name.toLowerCase()) ?? [] as string[];
+        if(devices && configDeviceNames && configDeviceNames.length > 0){
+            devices = devices.filter(x => x.data?.title && configDeviceNames.includes(x.data.title));
+        }
 
         if(devices === undefined || devices.length === 0){
             this.log.info('Devices not found');

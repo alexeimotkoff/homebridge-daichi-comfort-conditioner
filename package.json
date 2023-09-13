@@ -7,7 +7,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git://github.com/alexeimotkoff/homebridge-daichi-comfort-conditioner.git"
+    "url": "https://github.com/alexeimotkoff/homebridge-daichi-comfort-conditioner"
   },
   "bugs": {
     "url": "https://github.com/alexeimotkoff/homebridge-daichi-comfort-conditioner/issues"

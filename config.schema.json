@@ -1,5 +1,5 @@
 {
-  "pluginAlias": "DaichiComfortConditionerHomebridgePlugin",
+  "pluginAlias": "DaichiComfortConditioner",
   "pluginType": "platform",
   "singular": true,
   "schema": {
@@ -9,7 +9,8 @@
         "title": "Name",
         "type": "string",
         "required": true,
-        "default": "Daichi Comfort"
+        "default": "Daichi Comfort",
+        "description": "You shouldn't need to change this."
       },
       "username": {
         "title": "E-mail",
@@ -22,6 +23,24 @@
         "required": true,
         "x-schema-form": {
           "type": "password"
+        }
+      },
+      "devices": {
+        "title": "Devices",
+        "description": "You can add the names of the required devices from 'Daichi Comfort' or leave the list empty and then all devices will be added.",
+        "type": "array",
+        "required": false,
+        "items": {
+          "title": "Device",
+          "type": "object",
+          "properties": {
+            "name": {
+              "title": "Device name",
+              "type": "string",
+              "description": "Can be found in your 'Daichi Comfort' account",
+              "required": true
+            }
+          }
         }
       }
     }
