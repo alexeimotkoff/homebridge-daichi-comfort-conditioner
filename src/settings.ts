@@ -6,4 +6,4 @@ export const PLATFORM_NAME = 'DaichiComfortConditioner';
 /**
  * This must match the name of your plugin as defined the package.json
  */
-export const PLUGIN_NAME = 'homebridge-daichi-comfort-conditioner';
+export const PLUGIN_NAME = '@alexeimotkoff/homebridge-daichi-comfort-conditioner';

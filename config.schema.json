@@ -38,7 +38,7 @@
               "title": "Device name",
               "type": "string",
               "description": "Can be found in your 'Daichi Comfort' account",
-              "required": true
+              "required": false
             }
           }
         }

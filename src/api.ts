@@ -21,6 +21,9 @@ export class HttpApi {
     private apiToken: string | null = null;
     private mqttUser: MqttUser | null = null;
 
+    /**
+     * Login in 'Daichi Comfort Cloud'
+     */
     public async login() {
         try {
             const resp = await axios.post('token', {
@@ -40,10 +43,17 @@ export class HttpApi {
         }
     }
 
+    /**
+     * Get Mqtt user
+     */
     public getMqttUserInfo(): MqttUser | null{
         return this.mqttUser;
     }
 
+    /**
+     * Get all devices by user
+     * @returns Device list
+     */
     public async getDevices(): Promise<DaichiInfoDevice[]>{
         let results: DaichiInfoDevice[] = [];
         try{
@@ -60,6 +70,15 @@ export class HttpApi {
         return results.filter(x => x);
     }
 
+    /**
+     * Device control method. Sends control requests to API
+     * @param devId Device id
+     * @param cmd Command
+     * @param functionId Function id
+     * @param val Value: number or boolean, depending on function
+     * @param retryCount Count of retries (if token is incorrect or status is not 200)
+     * @returns 
+     */
     public async controlDevice(devId: number, cmd: CtrlMode, functionId: number, val: boolean | number, retryCount: number): Promise<DaichiInfoCtrlModel | null>{
         if(retryCount === 0){
             return null;
@@ -110,6 +129,10 @@ export class HttpApi {
         return result.data;
     }
 
+    /**
+     * Bearer authorization
+     * @returns axios
+     */
     private api(){
         if (this.apiToken !== null){
             axios.defaults.headers.common['Authorization'] = 'Bearer ' + this.apiToken;
@@ -117,6 +140,11 @@ export class HttpApi {
         return axios;
     }
     
+    /**
+     * Get device state
+     * @param devId Device id
+     * @returns State
+     */
     private async getState(devId: number): Promise<DaichiInfoDevice | null>{
         let deviceData: DaichiInfoDevice | null = null;
         try{
@@ -129,6 +157,9 @@ export class HttpApi {
         return deviceData;
     }
 
+    /**
+     * Set Mqtt user
+     */
     private async setMqttUserInfo() {
         try {
             const resp = await this.api().get('user');
@@ -146,6 +177,12 @@ export class HttpApi {
         }
     }
 
+    /**
+     * Get random integer
+     * @param min Min value
+     * @param max Max value
+     * @returns Random integer
+     */
     private static getRandomIntInclusive = (min: number, max: number): number => {
         min = Math.ceil(min);
         max = Math.floor(max);

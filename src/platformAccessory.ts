@@ -128,6 +128,11 @@ export class DaichiComfortPlatformAccessory {
         }
     }
 
+    /**
+     * Sending a control request to the device
+     * @param cmd Specific command from list.
+     * @param val Command value: can be a boolean or numeric value.
+     */
     protected async ctrl(cmd: CtrlMode, val: boolean | number){
         const deviceId = this.dev.id;
         const functionId = this.functionsDict.get(cmd)?.id;
@@ -185,6 +190,9 @@ export class DaichiComfortPlatformAccessory {
         callback(null, value);
     }
 
+    /**
+     * Handle requests to set the "TargetHeaterCoolerState" characteristic
+     */
     async handleTargetHeaterCoolerStateSet(val: CharacteristicValue, callback: CharacteristicSetCallback) {
         let modeName: CtrlMode;
         switch(val) {
@@ -207,6 +215,9 @@ export class DaichiComfortPlatformAccessory {
         callback(null, val);
     }
 
+    /**
+     * Handle requests to get the current value of the "Target Heater Cooler State" characteristic
+     */
     handleTargetHeaterCoolerStateGet(callback: CharacteristicSetCallback) {
         const value = this.getStateTargetHeaterCoolerState(this.state.mode);
         this.platform.log.debug('Triggered GET TargetHeaterCoolerState', value);
@@ -233,7 +244,9 @@ export class DaichiComfortPlatformAccessory {
         callback(null, value);
     }
 
-    // Handle requests to get the current value of the "swingMode" characteristic
+    /**
+     * Handle requests to get the current value of the "Swing Mode" characteristic
+     */
     handleSwingModeGet(callback: CharacteristicGetCallback) {
         const value = this.getStateSwingMode(this.state.swingMode);
         this.platform.log.debug('Triggered GET SwingMode', value);
@@ -241,7 +254,7 @@ export class DaichiComfortPlatformAccessory {
     }
 
     /**
-     * Handle requests to set the "swingMode" characteristic
+     * Handle requests to set the "Swing Mode" characteristic
      */
     async handleSwingModeSet(value: CharacteristicValue, callback: CharacteristicSetCallback) {
         await this.ctrl(CtrlMode.FanFlow, value === this.platform.Characteristic.SwingMode.SWING_ENABLED);
@@ -274,6 +287,10 @@ export class DaichiComfortPlatformAccessory {
         callback(null, value);
     }
 
+    /**
+     * Initializing the device state
+     * @param device Device
+     */
     initDeviceState(device: Device){
         if(!device){
             return;
@@ -301,6 +318,10 @@ export class DaichiComfortPlatformAccessory {
         }
     }
 
+    /**
+     * Update the device state
+     * @param device Device
+     */
     updateDeviceState(device: Device){
         if(!device){
             return;
@@ -346,6 +367,12 @@ export class DaichiComfortPlatformAccessory {
             this.platform.Characteristic.RotationSpeed);
     }
 
+    /**
+     * Updates the state of a specific device characteristic if the new and old values differ
+     * @param oldValue Old value of a specific device characteristic
+     * @param newValue New value of a specific device characteristic
+     * @param characteristic Characteristic
+     */
     chekAndUpdateState(oldValue: Nullable<CharacteristicValue>, newValue: Nullable<CharacteristicValue>, characteristic: WithUUID<{
         new (): Characteristic;
     }>){
@@ -354,16 +381,25 @@ export class DaichiComfortPlatformAccessory {
         }
     }
 
+    /**
+     * Get state Active characteristic
+     */
     getStateActive(powerState: boolean, online: boolean): Nullable<CharacteristicValue>{
         return powerState && online
             ? this.platform.Characteristic.Active.ACTIVE 
             : this.platform.Characteristic.Active.INACTIVE;
     }
 
+    /**
+     * Get state Current Temperature characteristic
+     */
     getStateCurrentTemperature(curTemp: number): Nullable<CharacteristicValue>{
         return curTemp;
     }
 
+    /**
+     * Get state Current Heater Cooler State characteristic
+     */
     getStateCurrentHeaterCoolerState(powerState: boolean, online: boolean, curTemp: number,
         setTemp: number, mode: string): Nullable<CharacteristicValue>{
         let value = this.platform.Characteristic.CurrentHeaterCoolerState.IDLE;
@@ -385,6 +421,9 @@ export class DaichiComfortPlatformAccessory {
         return value;
     }
 
+    /**
+     * Get state Target Heater Cooler State characteristic
+     */
     getStateTargetHeaterCoolerState(mode: string): Nullable<CharacteristicValue>{
         let value = this.platform.Characteristic.TargetHeaterCoolerState.AUTO;
 
@@ -398,20 +437,33 @@ export class DaichiComfortPlatformAccessory {
         return value;
     }
 
+    /**
+     * Get state Cooling Threshold Temperature characteristic
+     */
     getStateCoolingThresholdTemperature(setTemp: number): Nullable<CharacteristicValue>{
         return setTemp;
     }
 
+    /**
+     * Get state Swing Mode characteristic
+     */
     getStateSwingMode(swingMode: boolean): Nullable<CharacteristicValue>{
         return swingMode 
             ? this.platform.Characteristic.SwingMode.SWING_ENABLED 
             : this.platform.Characteristic.SwingMode.SWING_DISABLED;
     }
 
+    /**
+     * Get state Rotation Speed characteristic
+     */
     getStateRotationSpeed(autoFanSpeedIsOn: boolean, fanSpeed: number): Nullable<CharacteristicValue>{
         return autoFanSpeedIsOn ? 0 : fanSpeed * this.fanSpeedMinStep;
     }
 
+    /**
+     * Set a dictionary of functions
+     * @device Device
+     */
     setFunctionsDict(device: Device){
         const result = DaichiComfortPlatformAccessory.getFunctionsDict(device);
         if(result){
@@ -419,6 +471,10 @@ export class DaichiComfortPlatformAccessory {
         }
     }
 
+    /**
+     * Get a dictionary of functions
+     * @device Device
+     */
     static getFunctionsDict(device: Device) : Map<CtrlMode, PultFunction> | null{
         const funcDict = new Map<CtrlMode, PultFunction | null>();
         const functions = DaichiComfortPlatformAccessory.getFunctions(device);
@@ -446,12 +502,23 @@ export class DaichiComfortPlatformAccessory {
         return result;
     }
 
+    /**
+     * Searches for a specific function in the list of functions
+     * @tag Tag in function
+     * @functions List of functions
+     * @title Title in function
+     * @onCommand OnCommand value in function
+     */
     static searchFunction(tag : string, functions : PultFunction[], title? : string, onCommand? : string) : PultFunction | null{
         return functions?.find(x => (!title || x.title === title) &&
             (!onCommand || x.metaData?.bleTagInfo?.bleOnCommand === onCommand) &&
             x?.metaData?.bleTagInfo?.bleTag === tag) ?? null;
     }
 
+    /**
+     * Get list of functions from device
+     * @device Device
+     */
     static getFunctions(device: Device) : PultFunction[]{
         return device?.pult?.filter(x => (x?.functions))
             .flatMap(x => x.functions)
