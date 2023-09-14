@@ -1,5 +1,5 @@
 {
-  "private": true,
+  "private": false,
   "displayName": "Daichi Comfort",
   "name": "@alexeimotkoff/homebridge-daichi-comfort-conditioner",
   "version": "1.0.0",
