@@ -2,7 +2,7 @@
   "private": false,
   "displayName": "Daichi Comfort",
   "name": "@alexeimotkoff/homebridge-daichi-comfort-conditioner",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Plugin for integrating devices (air conditioners only) from the application 'Daichi Comfort'",
   "license": "Apache-2.0",
   "repository": {
