@@ -1,191 +1,177 @@
-import axios from 'axios';
-import {Logger} from 'homebridge';
-import {MqttUser} from './models/mqttUser';
-import {CtrlMode} from './models/ctrlMode';
-import {
-    DaichiInfoDevice,
-    DaichiInfoCtrlModel,
-} from './models/deviceModel';
+import axios, { AxiosInstance } from 'axios';
+import { Logger } from 'homebridge';
 
-axios.defaults.baseURL = 'https://web.daichicloud.ru/api/v4/';
+import { buildControlPayload } from './controlPayload';
+import { MqttUser } from './models/mqttUser';
+import { CtrlMode } from './models/ctrlMode';
+import { Device } from './models/deviceModel';
+import {
+  isBuildingsResponse,
+  isControlEnvelope,
+  isDeviceEnvelope,
+  isTokenResponse,
+  isUserResponse,
+} from './validation';
+
+export class DaichiApiError extends Error {
+  constructor(message: string, public readonly status?: number) {
+    super(message);
+    this.name = 'DaichiApiError';
+  }
+}
 
 export class HttpApi {
-    constructor(
-      protected readonly userName: string,
-      protected readonly password: string,
-      protected readonly log: Logger,
-    ) {
+  private apiToken: string | null = null;
+  private mqttUser: MqttUser | null = null;
+  private readonly client: AxiosInstance;
 
+  constructor(
+    protected readonly userName: string,
+    protected readonly password: string,
+    protected readonly log: Logger,
+    client?: AxiosInstance,
+  ) {
+    this.client = client ?? axios.create({
+      baseURL: 'https://web.daichicloud.ru/api/v4/',
+      timeout: 30_000,
+    });
+  }
+
+  /** Login in Daichi Comfort Cloud. */
+  public async login(): Promise<void> {
+    try {
+      this.log.debug('Sending login request');
+      const response = await this.client.post('token', {
+        grant_type: 'password',
+        email: this.userName,
+        password: this.password,
+        clientId: 'sOJO7B6SqgaKudTfCzqLAy540cCuDzpI',
+      });
+      if (!isTokenResponse(response.data)) {
+        throw new DaichiApiError('Invalid token response');
+      }
+
+      this.apiToken = response.data.data.access_token;
+      this.log.info('Accepted login request');
+    } catch (error) {
+      throw this.toApiError(error, 'Login failed');
+    }
+  }
+
+  /** Load and store MQTT user credentials. */
+  public async loadMqttUser(): Promise<MqttUser> {
+    const response = await this.authorized((config) => this.client.get('user', config));
+    if (!isUserResponse(response.data)) {
+      throw new DaichiApiError('Invalid user response');
     }
 
-    private apiToken: string | null = null;
-    private mqttUser: MqttUser | null = null;
+    const { id, mqttUser } = response.data.data;
+    this.mqttUser = new MqttUser(mqttUser.username, mqttUser.password, id);
+    this.log.debug('Accepted MQTT user request');
+    return this.mqttUser;
+  }
 
-    /**
-     * Login in 'Daichi Comfort Cloud'
-     */
-    public async login() {
-        try {
-            const resp = await axios.post('token', {
-                grant_type: 'password',
-                email: this.userName,
-                password: this.password,
-                clientId: 'sOJO7B6SqgaKudTfCzqLAy540cCuDzpI'});
-            this.apiToken = resp.data?.data?.access_token;
-            if(!this.apiToken){
-                this.log.error('login: Unauthorized! Invalid token');
-                return;
-            }
-            this.log.info('logged in');
-            await this.setMqttUserInfo();
-        } catch (e){
-            this.log.error((<Error>e).message);
-        }
+  /** Get the last loaded MQTT user. */
+  public getMqttUserInfo(): MqttUser | null {
+    return this.mqttUser;
+  }
+
+  /** Get all devices available to the user. */
+  public async getDevices(): Promise<Device[]> {
+    const buildings = await this.authorized((config) => this.client.get('buildings', config));
+    if (!isBuildingsResponse(buildings.data)) {
+      throw new DaichiApiError('Invalid buildings response');
     }
 
-    /**
-     * Get Mqtt user
-     */
-    public getMqttUserInfo(): MqttUser | null{
-        return this.mqttUser;
+    const placeIds = buildings.data.data.data.flatMap((building) => building.places.map((place) => place.id));
+    const devices = await Promise.all(placeIds.map((id) => this.getDevice(id)));
+    this.log.debug(`Accepted device discovery for ${devices.length} devices`);
+    return devices;
+  }
+
+  /** Send a control request and return the updated requested device. */
+  public async controlDevice(
+    devId: number,
+    cmd: CtrlMode,
+    functionId: number,
+    value: boolean | number,
+  ): Promise<Device> {
+    const payload = buildControlPayload(cmd, functionId, value);
+    this.log.debug(`Sending control request: device=${devId}, cmd=${cmd}, function=${functionId}`);
+    const response = await this.authorized((config) => this.client.post(
+      `devices/${devId}/ctrl?ignoreConflicts=false`,
+      payload,
+      config,
+    ));
+
+    if (!isControlEnvelope(response.data)) {
+      throw new DaichiApiError('Invalid control response');
     }
 
-    /**
-     * Get all devices by user
-     * @returns Device list
-     */
-    public async getDevices(): Promise<DaichiInfoDevice[]>{
-        let results: DaichiInfoDevice[] = [];
-        try{
-            const buildings = await this.api().get('buildings');
-            this.log.debug(`Buildings: ${JSON.stringify(buildings.data)}`);
-            const devices = buildings.data.data.flatMap(x => x.places);
-            results = await Promise.all(devices.map(async (x) => {
-                return await this.getState(x.id) as (DaichiInfoDevice | null);
-            }));
-        } catch (e){
-            this.log.error((<Error>e).message);
-        }
-
-        return results.filter(x => x);
+    const device = response.data.data.devices.find((item) => item.id === devId);
+    if (!device) {
+      throw new DaichiApiError(`Control response does not contain device ${devId}`);
     }
 
-    /**
-     * Device control method. Sends control requests to API
-     * @param devId Device id
-     * @param cmd Command
-     * @param functionId Function id
-     * @param val Value: number or boolean, depending on function
-     * @param retryCount Count of retries (if token is incorrect or status is not 200)
-     * @returns 
-     */
-    public async controlDevice(devId: number, cmd: CtrlMode, functionId: number, val: boolean | number, retryCount: number): Promise<DaichiInfoCtrlModel | null>{
-        if(retryCount === 0){
-            return null;
-        }
+    this.log.debug(`Accepted control request: device=${devId}, cmd=${cmd}, function=${functionId}`);
+    return device;
+  }
 
-        if(val === null || val === undefined){
-            this.log.error(`controlDevice: val has value is ${val}`);
-            return null;
-        }
-
-        let deviceFunctionControl;
-        if(cmd === CtrlMode.SetTemp || cmd === CtrlMode.FanSpeed){
-            deviceFunctionControl = {
-                functionId: functionId,
-                value: val,
-                parameters: null,
-            }; 
-        } else{
-            deviceFunctionControl = {
-                functionId: functionId,
-                isOn: val,
-                parameters: null,
-            }; 
-        }
-
-        let result;
-
-        try{
-            result = await this.api().post(`devices/${devId}/ctrl?ignoreConflicts=false`, {
-                cmdId: HttpApi.getRandomIntInclusive(0, 99999999),
-                value: deviceFunctionControl,
-                conflictResolveData: null,
-            });
-            if(result.status !== 200){
-                this.log.error(`controlDevice: Status code is ${result.status}`);
-
-                if(result.status === 401){
-                    this.log.error('controlDevice: Unauthorized! Invalid token');
-                    await this.login();
-                    retryCount--;
-                    return (await this.controlDevice(devId, cmd, functionId, val, retryCount));
-                }
-            }
-        } catch (e){
-            this.log.error((<Error>e).message);
-        }
-
-        return result.data;
+  private async getDevice(id: number): Promise<Device> {
+    const response = await this.authorized((config) => this.client.get(`devices/${id}`, config));
+    if (!isDeviceEnvelope(response.data)) {
+      throw new DaichiApiError(`Invalid device response for ${id}`);
     }
 
-    /**
-     * Bearer authorization
-     * @returns axios
-     */
-    private api(){
-        if (this.apiToken !== null){
-            axios.defaults.headers.common['Authorization'] = 'Bearer ' + this.apiToken;
-        }
-        return axios;
-    }
-    
-    /**
-     * Get device state
-     * @param devId Device id
-     * @returns State
-     */
-    private async getState(devId: number): Promise<DaichiInfoDevice | null>{
-        let deviceData: DaichiInfoDevice | null = null;
-        try{
-            const result = await this.api().get(`devices/${devId}`);
-            deviceData = result.data;
-        } catch (e){
-            this.log.error((<Error>e).message);
+    return response.data.data;
+  }
+
+  private async authorized<T>(request: (config: { headers: Record<string, string> }) => Promise<T>): Promise<T> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await request(this.authorizationConfig());
+      } catch (error) {
+        if (this.statusOf(error) === 401 && attempt === 0) {
+          this.log.debug('Failed authorized request with status 401; refreshing login');
+          await this.login();
+          continue;
         }
 
-        return deviceData;
+        throw this.toApiError(error, 'Authorized request failed');
+      }
     }
 
-    /**
-     * Set Mqtt user
-     */
-    private async setMqttUserInfo() {
-        try {
-            const resp = await this.api().get('user');
-            this.log.debug(JSON.stringify(resp.data));
-            if(resp.data?.data?.mqttUser?.username &&
-                resp.data?.data?.mqttUser?.password &&
-                resp.data?.data?.id){
-                this.mqttUser = new MqttUser(
-                    resp.data.data.mqttUser.username,
-                    resp.data.data.mqttUser.password,
-                    resp.data.data.id);
-            }
-        } catch (e){
-            this.log.error((<Error>e).message);
-        }
-    }
+    throw new DaichiApiError('Authorized request failed');
+  }
 
-    /**
-     * Get random integer
-     * @param min Min value
-     * @param max Max value
-     * @returns Random integer
-     */
-    private static getRandomIntInclusive = (min: number, max: number): number => {
-        min = Math.ceil(min);
-        max = Math.floor(max);
-        return Math.floor(Math.random() * (max - min + 1)) + min;
+  private authorizationConfig(): { headers: Record<string, string> } {
+    return {
+      headers: this.apiToken === null ? {} : { Authorization: `Bearer ${this.apiToken}` },
     };
+  }
+
+  private toApiError(error: unknown, fallback: string): DaichiApiError {
+    if (error instanceof DaichiApiError) {
+      return error;
+    }
+
+    const status = this.statusOf(error);
+    const message = error instanceof Error ? error.message : fallback;
+    this.log.debug(`Failed request${status === undefined ? '' : ` with status ${status}`}`);
+    return new DaichiApiError(message, status);
+  }
+
+  private statusOf(error: unknown): number | undefined {
+    if (!this.isAxiosError(error) || typeof error.response?.status !== 'number') {
+      return undefined;
+    }
+
+    return error.response.status;
+  }
+
+  private isAxiosError(error: unknown): error is { response?: { status?: unknown } } {
+    return axios.isAxiosError(error) ||
+      (typeof error === 'object' && error !== null &&
+        'isAxiosError' in error && error.isAxiosError === true);
+  }
 }

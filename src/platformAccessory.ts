@@ -5,39 +5,66 @@ import {
     WithUUID,
     CharacteristicValue,
     Nullable,
-    CharacteristicSetCallback,
-    CharacteristicGetCallback,
 } from 'homebridge';
 import {DaichiComfortHomebridgePlatform} from './platform';
 import {DevState} from './models/devState';
 import {CtrlMode} from './models/ctrlMode';
 import {
-    DaichiInfoModel,
     Device,
     PultFunction,
 } from './models/deviceModel';
-import {
-    MqttClient,
-    connect,
-} from 'mqtt';
+
+type GetHandler = () => Promise<Nullable<CharacteristicValue>>;
+type SetHandler = (value: CharacteristicValue) => Promise<void>;
+
+interface CharacteristicBinding {
+    characteristic: Characteristic;
+    getHandler?: GetHandler;
+    setHandler?: SetHandler;
+}
+
+interface RuntimeCharacteristicHandlers {
+    getHandler?: unknown;
+    setHandler?: unknown;
+}
 
 export class DaichiComfortPlatformAccessory {
-    private service: Service;
+    private service!: Service;
     private state: DevState;
-    private mqttClient: MqttClient | null = null;
     private functionsDict = new Map<CtrlMode, PultFunction>();
     private fanSpeedMinStep: number = 1;
+    private activated = false;
+    private createdService = false;
+    private bindings: CharacteristicBinding[] = [];
 
     constructor(
       private readonly platform: DaichiComfortHomebridgePlatform,
       private readonly accessory: PlatformAccessory,
       private readonly dev: Device,
+      activate: boolean = true,
     ) {
         this.state = new DevState();
         this.setFunctionsDict(this.dev);
         this.initDeviceState(this.dev);
         this.fanSpeedMinStep = Math.floor(100 / Math.max(...(this.functionsDict.get(CtrlMode.FanSpeed)?.state?.valueRange ?? [20])));
 
+        if (activate) {
+            this.activate();
+        }
+    }
+
+    /** Attach Homebridge services and characteristic handlers once discovery commits. */
+    public activate(force: boolean = false): void {
+        if (this.activated && !force) {
+            return;
+        }
+        const rebindExistingService = force && this.activated;
+        if (rebindExistingService) {
+            this.unbindCallbacks();
+            this.activated = false;
+        }
+
+        try {
         // set accessory information
         const model = [this.dev.deviceInfo?.seria, this.dev.deviceInfo?.model].filter(x => x).join(' ');
         this.accessory.getService(this.platform.Service.AccessoryInformation)!
@@ -45,86 +72,144 @@ export class DaichiComfortPlatformAccessory {
             .setCharacteristic(this.platform.Characteristic.Model, model)
             .setCharacteristic(this.platform.Characteristic.SerialNumber, this.dev.serial);
 
-        this.service = this.accessory.getService(this.platform.Service.HeaterCooler) || this.accessory.addService(this.platform.Service.HeaterCooler);
+        const existingService = rebindExistingService ? this.service :
+            this.accessory.getService(this.platform.Service.HeaterCooler);
+        this.service = existingService || this.accessory.addService(this.platform.Service.HeaterCooler);
+        if (!rebindExistingService) {
+            this.createdService = !existingService;
+        }
 
         // set the service name, this is what is displayed as the default name on the Home app
         this.service.setCharacteristic(this.platform.Characteristic.Name, this.dev.title ?? 'Unknown Name');
 
-        this.service.getCharacteristic(this.platform.Characteristic.Active)
-            .on('get', this.handleActiveGet.bind(this))
-            .on('set', this.handleActiveSet.bind(this));
+        this.bindCharacteristic(
+            this.service.getCharacteristic(this.platform.Characteristic.Active),
+            this.handleActiveGet.bind(this),
+            this.handleActiveSet.bind(this),
+        );
 
-        this.service.getCharacteristic(this.platform.Characteristic.TargetHeaterCoolerState)
-            .on('get', this.handleTargetHeaterCoolerStateGet.bind(this))
-            .on('set', this.handleTargetHeaterCoolerStateSet.bind(this));
+        this.bindCharacteristic(
+            this.service.getCharacteristic(this.platform.Characteristic.TargetHeaterCoolerState),
+            this.handleTargetHeaterCoolerStateGet.bind(this),
+            this.handleTargetHeaterCoolerStateSet.bind(this),
+        );
 
-        this.service.getCharacteristic(this.platform.Characteristic.CurrentHeaterCoolerState)
-            .on('get', this.handleCurrentHeaterCoolerStateGet.bind(this));
+        this.bindCharacteristic(
+            this.service.getCharacteristic(this.platform.Characteristic.CurrentHeaterCoolerState),
+            this.handleCurrentHeaterCoolerStateGet.bind(this),
+        );
 
-        this.service.getCharacteristic(this.platform.Characteristic.CurrentTemperature)
-            .on('get', this.handleCurrentTemperatureGet.bind(this));
+        this.bindCharacteristic(
+            this.service.getCharacteristic(this.platform.Characteristic.CurrentTemperature),
+            this.handleCurrentTemperatureGet.bind(this),
+        );
 
-        this.service.getCharacteristic(this.platform.Characteristic.CoolingThresholdTemperature)
-            .on('get', this.handleCoolingThresholdTemperatureGet.bind(this))
-            .on('set', this.handleCoolingThresholdTemperatureSet.bind(this))
+        this.bindCharacteristic(
+            this.service.getCharacteristic(this.platform.Characteristic.CoolingThresholdTemperature),
+            this.handleCoolingThresholdTemperatureGet.bind(this),
+            this.handleCoolingThresholdTemperatureSet.bind(this),
+        )
             .setProps({
                 minStep: 1,
                 minValue: Math.min(...(this.functionsDict.get(CtrlMode.SetTemp)?.state?.valueRange ?? [0])),
                 maxValue: Math.max(...(this.functionsDict.get(CtrlMode.SetTemp)?.state?.valueRange ?? [0])),
             });
 
-        this.service.getCharacteristic(this.platform.Characteristic.HeatingThresholdTemperature)
-            .on('get', this.handleCoolingThresholdTemperatureGet.bind(this))
-            .on('set', this.handleCoolingThresholdTemperatureSet.bind(this))
+        this.bindCharacteristic(
+            this.service.getCharacteristic(this.platform.Characteristic.HeatingThresholdTemperature),
+            this.handleCoolingThresholdTemperatureGet.bind(this),
+            this.handleCoolingThresholdTemperatureSet.bind(this),
+        )
             .setProps({
                 minStep: 1,
                 minValue: Math.min(...(this.functionsDict.get(CtrlMode.SetTemp)?.state?.valueRange ?? [0])),
                 maxValue: Math.max(...(this.functionsDict.get(CtrlMode.SetTemp)?.state?.valueRange ?? [0])),
             });
 
-        this.service.getCharacteristic(this.platform.Characteristic.SwingMode)
-            .on('get', this.handleSwingModeGet.bind(this))
-            .on('set', this.handleSwingModeSet.bind(this));
+        this.bindCharacteristic(
+            this.service.getCharacteristic(this.platform.Characteristic.SwingMode),
+            this.handleSwingModeGet.bind(this),
+            this.handleSwingModeSet.bind(this),
+        );
 
-        this.service.getCharacteristic(this.platform.Characteristic.RotationSpeed)
-            .on('get', this.handleRotationSpeedGet.bind(this))
-            .on('set', this.handleRotationSpeedSet.bind(this))
+        this.bindCharacteristic(
+            this.service.getCharacteristic(this.platform.Characteristic.RotationSpeed),
+            this.handleRotationSpeedGet.bind(this),
+            this.handleRotationSpeedSet.bind(this),
+        )
             .setProps({
                 minStep: this.fanSpeedMinStep,
                 minValue: 0,
                 maxValue: 100,
             });
 
-        const mqttUser = this.platform.getCtrlApi().getMqttUserInfo();
+        this.activated = true;
+        } catch (error) {
+            try {
+                this.cleanupBindings(!rebindExistingService);
+            } catch {
+                this.platform.log.warn('Failed to clean up accessory activation');
+            }
+            throw error;
+        }
+    }
 
-        if(!mqttUser){
-            this.platform.log.error('MQTT user is unknown');
-        } else {
-            this.mqttClient = connect('wss://split.daichicloud.ru/mqtt', {
-                username: mqttUser.userName,
-                password: mqttUser.password,
-            });
-            this.mqttClient.on('connect', () => {
-                this.mqttClient!.subscribe(`user/${mqttUser.userId}/notification`);
-                this.platform.log.debug('Connected to mqtt');
-            });
-            this.mqttClient.on('message', (topic, message) => {
-                const stringMessage = message?.toString() ?? '{}';
-                const model = JSON.parse(stringMessage) as DaichiInfoModel;
-                const device = model?.devices?.find(x => x.id === this.dev.id);
-    
-                if(device){
-                    this.updateDeviceState(device);
-                } else{
-                    this.platform.log.error(`MQTT send incorrect message: ${stringMessage}`);
+    /** Remove only bindings and service created by this handler instance. */
+    public deactivate(): void {
+        this.cleanupBindings();
+        this.activated = false;
+    }
+
+    private bindCharacteristic(
+        characteristic: Characteristic,
+        getHandler?: GetHandler,
+        setHandler?: SetHandler,
+    ): Characteristic {
+        this.bindings.push({characteristic, getHandler, setHandler});
+        if (getHandler) {
+            characteristic.onGet(getHandler);
+        }
+        if (setHandler) {
+            characteristic.onSet(setHandler);
+        }
+        return characteristic;
+    }
+
+    private cleanupBindings(removeCreatedService: boolean = true): void {
+        this.unbindCallbacks();
+        let cleanupError: unknown;
+        if (removeCreatedService && this.createdService) {
+            try {
+                this.accessory.removeService(this.service);
+            } catch (error) {
+                cleanupError ??= error;
+            }
+            this.createdService = false;
+        }
+        if (cleanupError) {
+            throw cleanupError;
+        }
+    }
+
+    private unbindCallbacks(): void {
+        let cleanupError: unknown;
+        const bindings = this.bindings;
+        this.bindings = [];
+        for (const binding of bindings.reverse()) {
+            try {
+                const runtime = binding.characteristic as unknown as RuntimeCharacteristicHandlers;
+                if (binding.getHandler && runtime.getHandler === binding.getHandler) {
+                    binding.characteristic.removeOnGet();
                 }
-            });
-            this.mqttClient.on('disconnect', (packet) => {
-                this.platform.log.error(`MQTT is disconnect. Packet: ${JSON.stringify(packet)}`);
-            });
-            this.mqttClient.on('error', (error) => {
-                this.platform.log.error(`MQTT got error: ${error}`);
-            });
+                if (binding.setHandler && runtime.setHandler === binding.setHandler) {
+                    binding.characteristic.removeOnSet();
+                }
+            } catch (error) {
+                cleanupError ??= error;
+            }
+        }
+        if (cleanupError) {
+            throw cleanupError;
         }
     }
 
@@ -136,64 +221,65 @@ export class DaichiComfortPlatformAccessory {
     protected async ctrl(cmd: CtrlMode, val: boolean | number){
         const deviceId = this.dev.id;
         const functionId = this.functionsDict.get(cmd)?.id;
-        if(functionId){
-            const commandParameters = `ctrl: Result unknown with command parameters: cmd = ${CtrlMode[cmd]}, val = ${val}, functionId = ${functionId}, deviceId = ${deviceId}`;
-            this.platform.log.debug(commandParameters);
-            const result = await this.platform.getCtrlApi().controlDevice(deviceId, cmd, functionId, val, 2);
-            if(result){
-                const device = result?.data?.devices?.find(x => x.id === this.dev.id);
-                if(device){
-                    this.updateDeviceState(device);
-                }
-            } else{
-                this.platform.log.error(commandParameters);
-            }
-        } else{
-            this.platform.log.error('ctrl: Unknown functionId');
+        if(!functionId){
+            const message = `Unknown functionId for device=${deviceId}, cmd=${CtrlMode[cmd]}`;
+            this.platform.log.error(`ctrl: ${message}`);
+            throw new Error(message);
+        }
+
+        const commandParameters = `device=${deviceId}, cmd=${CtrlMode[cmd]}, function=${functionId}`;
+        this.platform.log.debug(`Sending control request: ${commandParameters}`);
+        try {
+            const device = await this.platform.getCtrlApi().controlDevice(deviceId, cmd, functionId, val);
+            this.updateDeviceState(device);
+            this.platform.log.debug(`Accepted control request: ${commandParameters}`);
+        } catch(error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            this.platform.log.error(`Failed control request: ${commandParameters}: ${message}`);
+            throw error;
         }
     }
 
     /**
      * Handle requests to get the current value of the "Active" characteristic
      */
-    handleActiveGet(callback: CharacteristicGetCallback) {
+    async handleActiveGet(): Promise<Nullable<CharacteristicValue>> {
         const value = this.getStateActive(this.state.powerState, this.state.online);
         this.platform.log.debug('Triggered GET Active:', value);
-        callback(null, value);
+        return value;
     }
 
     /**
      * Handle requests to set the "Active" characteristic
      */
-    async handleActiveSet(value, callback: CharacteristicSetCallback) {
+    async handleActiveSet(value: CharacteristicValue): Promise<void> {
         this.platform.log.debug('Triggered SET Active:', value);
         await this.ctrl(CtrlMode.IsOn, !!value);
-        callback(null, value);
     }
 
     /**
      * Handle requests to get the current value of the "Current Temperature" characteristic
      */
-    handleCurrentTemperatureGet(callback: CharacteristicGetCallback) {
+    async handleCurrentTemperatureGet(): Promise<Nullable<CharacteristicValue>> {
         const value = this.getStateCurrentTemperature(this.state.curTemp);
         this.platform.log.debug('Triggered GET CurrentTemperature', value);
-        callback(null, value);
+        return value;
     }
 
     /**
      * Handle requests to get the current value of the "Current Heating Cooling State" characteristic
      */
-    handleCurrentHeaterCoolerStateGet(callback: CharacteristicSetCallback) {
+    async handleCurrentHeaterCoolerStateGet(): Promise<Nullable<CharacteristicValue>> {
         const value = this.getStateCurrentHeaterCoolerState(this.state.powerState, this.state.online, 
             this.state.curTemp, this.state.setTemp, this.state.mode);
-            this.platform.log.debug('Triggered GET CurrentHeatingCoolingState', value);
-        callback(null, value);
+        this.platform.log.debug('Triggered GET CurrentHeatingCoolingState', value);
+        return value;
     }
 
     /**
      * Handle requests to set the "TargetHeaterCoolerState" characteristic
      */
-    async handleTargetHeaterCoolerStateSet(val: CharacteristicValue, callback: CharacteristicSetCallback) {
+    async handleTargetHeaterCoolerStateSet(val: CharacteristicValue): Promise<void> {
         let modeName: CtrlMode;
         switch(val) {
             case this.platform.Characteristic.TargetHeaterCoolerState.HEAT: { 
@@ -212,69 +298,66 @@ export class DaichiComfortPlatformAccessory {
         await this.ctrl(modeName, true);
 
         this.platform.log.debug('Triggered SET TargetHeaterCoolerState: ', val);
-        callback(null, val);
     }
 
     /**
      * Handle requests to get the current value of the "Target Heater Cooler State" characteristic
      */
-    handleTargetHeaterCoolerStateGet(callback: CharacteristicSetCallback) {
+    async handleTargetHeaterCoolerStateGet(): Promise<Nullable<CharacteristicValue>> {
         const value = this.getStateTargetHeaterCoolerState(this.state.mode);
         this.platform.log.debug('Triggered GET TargetHeaterCoolerState', value);
-        callback(null, value);
+        return value;
     }
 
     /**
      * Handle requests to get the current value of the "Target Temperature" characteristic
      */
-    handleCoolingThresholdTemperatureGet(callback: CharacteristicSetCallback) {
+    async handleCoolingThresholdTemperatureGet(): Promise<Nullable<CharacteristicValue>> {
         const value = this.getStateCoolingThresholdTemperature(this.state.setTemp);
         this.platform.log.debug('Triggered GET CoolingThresholdTemperature', value);
-        callback(null, value);
+        return value;
     }
 
     /**
      * Handle requests to set the "Target Temperature" characteristic
      */
-    async handleCoolingThresholdTemperatureSet(value, callback: CharacteristicSetCallback) {
+    async handleCoolingThresholdTemperatureSet(value: CharacteristicValue): Promise<void> {
         this.platform.log.debug('Triggered SET CoolingThresholdTemperature:', value);
         if (this.state.setTemp !== value) {
-            await this.ctrl(CtrlMode.SetTemp, value);
+            await this.ctrl(CtrlMode.SetTemp, value as number);
         }
-        callback(null, value);
     }
 
     /**
      * Handle requests to get the current value of the "Swing Mode" characteristic
      */
-    handleSwingModeGet(callback: CharacteristicGetCallback) {
+    async handleSwingModeGet(): Promise<Nullable<CharacteristicValue>> {
         const value = this.getStateSwingMode(this.state.swingMode);
         this.platform.log.debug('Triggered GET SwingMode', value);
-        callback(null, value);
+        return value;
     }
 
     /**
      * Handle requests to set the "Swing Mode" characteristic
      */
-    async handleSwingModeSet(value: CharacteristicValue, callback: CharacteristicSetCallback) {
+    async handleSwingModeSet(value: CharacteristicValue): Promise<void> {
         await this.ctrl(CtrlMode.FanFlow, value === this.platform.Characteristic.SwingMode.SWING_ENABLED);
         this.platform.log.debug('Triggered SET SwingMode:', value);
-        callback(null, value);
     }
 
     /**
      * Handle requests to get the current value of the "RotationSpeed" characteristic
      */
-    handleRotationSpeedGet(callback: CharacteristicGetCallback) {
+    async handleRotationSpeedGet(): Promise<Nullable<CharacteristicValue>> {
         const value = this.getStateRotationSpeed(this.state.autoFanSpeedIsOn, this.state.fanSpeed);
         this.platform.log.debug('Triggered GET RotationSpeed', value);
-        callback(null, value);
+        return value;
     }
 
     /**
      * Handle requests to set the "RotationSpeed" characteristic
      */
-    async handleRotationSpeedSet(value: CharacteristicValue, callback: CharacteristicSetCallback) {
+    async handleRotationSpeedSet(value: CharacteristicValue): Promise<void> {
         if(this.state.fanSpeed !== value){
             if(value === 0){
                 await this.ctrl(CtrlMode.FanSpeedAuto, true);
@@ -284,7 +367,6 @@ export class DaichiComfortPlatformAccessory {
         }
         
         this.platform.log.debug('Triggered SET RotationSpeed:', value);
-        callback(null, value);
     }
 
     /**
