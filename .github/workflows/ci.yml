@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Node ${{ matrix.node }} / Homebridge ${{ matrix.homebridge }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node: 22.19.0
+            homebridge: 1.9.0
+          - node: 22.19.0
+            homebridge: 2.2.1
+          - node: 24.15.0
+            homebridge: 2.2.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save --package-lock=false homebridge@${{ matrix.homebridge }}
+      - run: node -e "const actual = require('./node_modules/homebridge/package.json').version; if (actual !== '${{ matrix.homebridge }}') throw new Error('Expected Homebridge ${{ matrix.homebridge }}, got ' + actual); console.log('Homebridge ' + actual)"
+      - run: npm run verify
+      - if: matrix.node == '22.19.0' && matrix.homebridge == '1.9.0'
+        run: npm pack --dry-run

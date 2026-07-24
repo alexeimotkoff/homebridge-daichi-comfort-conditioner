@@ -14,7 +14,7 @@ export interface Device {
   id: number;
   serial: string;
   status: string;
-  curTemp: number;
+  curTemp?: number;
   state: DeviceState;
   pult: Pult[];
   deviceInfo: DeviceInfo | undefined;
@@ -57,4 +57,3 @@ export interface BleTagInfo {
   bleTag: string;
   bleOnCommand?: string;
 }
-  
