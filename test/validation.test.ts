@@ -2,13 +2,16 @@ import { describe, expect, it } from 'vitest';
 
 import {
   controlEnvelopeFixture,
+  currentBuildingsResponseFixture,
   deviceFixture,
   fanSpeedFunctionFixture,
   mqttModelFixture,
   negativeSetTempFunctionFixture,
+  nullableControlEnvelopeFixture,
+  nullableDeviceFixture,
   offControlEnvelopeFixture,
 } from './fixtures/daichi';
-import { isControlEnvelope, isDevice, isMqttModel } from '../src/validation';
+import { isBuildingsResponse, isControlEnvelope, isDevice, isMqttModel } from '../src/validation';
 
 const validFunction = deviceFixture.pult[0].functions[0];
 
@@ -17,6 +20,10 @@ function deviceWithFunction(value: unknown) {
 }
 
 describe('API response validation', () => {
+  it('accepts the current direct buildings data array', () => {
+    expect(isBuildingsResponse(currentBuildingsResponseFixture)).toBe(true);
+  });
+
   it('accepts a valid control envelope', () => {
     expect(isControlEnvelope(controlEnvelopeFixture)).toBe(true);
   });
@@ -31,6 +38,12 @@ describe('API response validation', () => {
 
   it('accepts a valid MQTT root model', () => {
     expect(isMqttModel(mqttModelFixture)).toBe(true);
+  });
+
+  it('accepts nullable fields from current Daichi device responses', () => {
+    expect(isDevice(nullableDeviceFixture)).toBe(true);
+    expect(isMqttModel({ devices: [nullableDeviceFixture] })).toBe(true);
+    expect(isControlEnvelope(nullableControlEnvelopeFixture)).toBe(true);
   });
 
   it('accepts a device without a current temperature', () => {
@@ -126,6 +139,32 @@ describe('API response validation', () => {
       ...validFunction,
       linkedFunction: { id: 351 },
     }))).toBe(false);
+  });
+
+  it.each([
+    {
+      label: 'state value',
+      value: {
+        ...validFunction,
+        state: { ...validFunction.state, value: {} },
+      },
+    },
+    {
+      label: 'BLE on command',
+      value: {
+        ...validFunction,
+        metaData: { bleTagInfo: { ...validFunction.metaData.bleTagInfo, bleOnCommand: {} } },
+      },
+    },
+    {
+      label: 'linked function',
+      value: {
+        ...validFunction,
+        linkedFunction: 'invalid',
+      },
+    },
+  ])('rejects non-null malformed $label', ({ value }) => {
+    expect(isDevice(deviceWithFunction(value))).toBe(false);
   });
 
   it('rejects a linked-function cycle without recursing forever', () => {

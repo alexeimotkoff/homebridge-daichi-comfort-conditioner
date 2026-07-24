@@ -45,10 +45,18 @@ export function isUserResponse(value: unknown): value is UserResponse {
 }
 
 export function isBuildingsResponse(value: unknown): value is BuildingsResponse {
-  return isRecord(value) &&
-    isRecord(value.data) &&
-    Array.isArray(value.data.data) &&
-    value.data.data.every((building) => isRecord(building) &&
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const buildings = Array.isArray(value.data)
+    ? value.data
+    : isRecord(value.data) && Array.isArray(value.data.data)
+      ? value.data.data
+      : null;
+
+  return buildings !== null &&
+    buildings.every((building) => isRecord(building) &&
       Array.isArray(building.places) &&
       building.places.every((place) => isRecord(place) && isPositiveInteger(place.id)));
 }
@@ -69,7 +77,7 @@ function isPultFunction(
   depth = 0,
 ): value is PultFunction {
   if (!isRecord(value) || depth > 16 || ancestors.has(value) || !isPositiveInteger(value.id) ||
-    (value.title !== undefined && typeof value.title !== 'string') || !isRecord(value.state) ||
+    (value.title !== undefined && value.title !== null && typeof value.title !== 'string') || !isRecord(value.state) ||
     !isRecord(value.metaData) || !isRecord(value.metaData.bleTagInfo)) {
     return false;
   }
@@ -78,16 +86,17 @@ function isPultFunction(
   const valueRange = state.valueRange;
   const bleTagInfo = value.metaData.bleTagInfo;
   if (typeof state.isOn !== 'boolean' ||
-    (state.value !== undefined && !isFiniteNumber(state.value)) ||
+    (state.value !== undefined && state.value !== null && !isFiniteNumber(state.value)) ||
     (valueRange !== undefined && !isFiniteNumberArray(valueRange)) ||
     typeof bleTagInfo.bleTag !== 'string' ||
-    (bleTagInfo.bleOnCommand !== undefined && typeof bleTagInfo.bleOnCommand !== 'string') ||
+    (bleTagInfo.bleOnCommand !== undefined && bleTagInfo.bleOnCommand !== null &&
+      typeof bleTagInfo.bleOnCommand !== 'string') ||
     (value.title === 'Fan speed' && bleTagInfo.bleTag === 'fanSpeed' &&
       valueRange !== undefined && !isSafeFanSpeedRange(valueRange))) {
     return false;
   }
 
-  if (value.linkedFunction === undefined) {
+  if (value.linkedFunction === undefined || value.linkedFunction === null) {
     return true;
   }
 

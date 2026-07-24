@@ -4,7 +4,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DaichiApiError, HttpApi } from '../src/api';
 import { CtrlMode } from '../src/models/ctrlMode';
 import { DaichiComfortPlatformAccessory } from '../src/platformAccessory';
-import { controlEnvelopeFixture, deviceFixture } from './fixtures/daichi';
+import {
+  controlEnvelopeFixture,
+  currentBuildingsResponseFixture,
+  deviceFixture,
+  nullableDeviceFixture,
+} from './fixtures/daichi';
 
 type FakeAxios = Pick<AxiosInstance, 'get' | 'post'>;
 
@@ -73,6 +78,27 @@ describe('HttpApi', () => {
     expect(client.get).toHaveBeenNthCalledWith(1, 'buildings', { headers: {} });
     expect(client.get).toHaveBeenNthCalledWith(2, 'devices/10', { headers: {} });
     expect(client.get).toHaveBeenNthCalledWith(3, 'devices/11', { headers: {} });
+  });
+
+  it('discovers devices from the current direct buildings data array', async () => {
+    const client = createClient();
+    const { api } = createApi(client);
+    vi.mocked(client.get)
+      .mockResolvedValueOnce({ data: currentBuildingsResponseFixture })
+      .mockResolvedValueOnce({ data: { data: { ...deviceFixture, id: 10 } } });
+
+    await expect(api.getDevices()).resolves.toEqual([{ ...deviceFixture, id: 10 }]);
+    expect(client.get).toHaveBeenNthCalledWith(2, 'devices/10', { headers: {} });
+  });
+
+  it('accepts nullable fields from the current Daichi device endpoint', async () => {
+    const client = createClient();
+    const { api } = createApi(client);
+    vi.mocked(client.get)
+      .mockResolvedValueOnce({ data: { data: { data: [{ places: [{ id: 10 }] }] } } })
+      .mockResolvedValueOnce({ data: { data: nullableDeviceFixture } });
+
+    await expect(api.getDevices()).resolves.toEqual([nullableDeviceFixture]);
   });
 
   it('posts the exact control payload and returns the requested device', async () => {

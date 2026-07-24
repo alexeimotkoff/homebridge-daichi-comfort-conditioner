@@ -36,17 +36,17 @@ export interface Pult {
 }
 
 export interface State {
-  value?: number;
+  value?: number | null;
   isOn: boolean;
   valueRange?: number[];
 }
 
 export interface PultFunction {
   id: number;
-  title?: string;
+  title?: string | null;
   state: State;
   metaData: MetaData;
-  linkedFunction?: PultFunction;
+  linkedFunction?: PultFunction | null;
 }
 
 export interface MetaData {
@@ -55,5 +55,5 @@ export interface MetaData {
 
 export interface BleTagInfo {
   bleTag: string;
-  bleOnCommand?: string;
+  bleOnCommand?: string | null;
 }

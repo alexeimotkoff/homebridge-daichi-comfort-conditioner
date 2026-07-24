@@ -79,11 +79,13 @@ export class HttpApi {
   /** Get all devices available to the user. */
   public async getDevices(): Promise<Device[]> {
     const buildings = await this.authorized((config) => this.client.get('buildings', config));
-    if (!isBuildingsResponse(buildings.data)) {
+    const response = buildings.data;
+    if (!isBuildingsResponse(response)) {
       throw new DaichiApiError('Invalid buildings response');
     }
 
-    const placeIds = buildings.data.data.data.flatMap((building) => building.places.map((place) => place.id));
+    const buildingItems = Array.isArray(response.data) ? response.data : response.data.data;
+    const placeIds = buildingItems.flatMap((building) => building.places.map((place) => place.id));
     const devices = await Promise.all(placeIds.map((id) => this.getDevice(id)));
     this.log.debug(`Accepted device discovery for ${devices.length} devices`);
     return devices;

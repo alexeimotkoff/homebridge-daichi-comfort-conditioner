@@ -17,13 +17,15 @@ export interface UserResponse {
 }
 
 export interface BuildingsResponse {
-  data: {
-    data: Array<{
-      places: Array<{
-        id: number;
-      }>;
-    }>;
+  data: Building[] | {
+    data: Building[];
   };
+}
+
+interface Building {
+  places: Array<{
+    id: number;
+  }>;
 }
 
 export interface DeviceEnvelope {
