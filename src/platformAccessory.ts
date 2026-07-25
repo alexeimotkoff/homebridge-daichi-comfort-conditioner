@@ -567,7 +567,7 @@ export class DaichiComfortPlatformAccessory {
 
         funcDict.set(CtrlMode.IsOn, DaichiComfortPlatformAccessory.searchFunction('power', functions));
         funcDict.set(CtrlMode.SetTemp, DaichiComfortPlatformAccessory.searchFunction('setTemp', functions));
-        funcDict.set(CtrlMode.FanFlow, DaichiComfortPlatformAccessory.searchFunction('flow', functions, 'Vertical swing', 'vert_on'));
+        funcDict.set(CtrlMode.FanFlow, DaichiComfortPlatformAccessory.searchFunction('flow', functions, undefined, 'vert_on'));
         funcDict.set(CtrlMode.FanSpeedAuto, DaichiComfortPlatformAccessory.searchFunction('fanSpeed', functions, 'Auto', '0'));
         funcDict.set(CtrlMode.FanSpeed, DaichiComfortPlatformAccessory.searchFunction('fanSpeed', functions, 'Fan speed'));
         funcDict.set(CtrlMode.AutoMode, DaichiComfortPlatformAccessory.searchFunction('mode', functions, undefined, 'auto'));

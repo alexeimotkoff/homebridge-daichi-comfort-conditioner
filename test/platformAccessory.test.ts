@@ -250,6 +250,36 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
     expect(controlDevice).toHaveBeenCalledWith(1001, CtrlMode.FanSpeed, 5, 3);
   });
 
+  it('uses the flow vert_on function for both SwingMode values regardless of title', async () => {
+    const defaultDevice = deviceFixture();
+    const device = deviceFixture({pult: [{
+      functions: [
+        ...defaultDevice.pult[0].functions.filter(fn => fn.id !== 3),
+        functionFixture(360, 'flow', {
+          title: 'Horizontal swing',
+          metaData: {bleTagInfo: {bleTag: 'flow', bleOnCommand: 'vert_on'}},
+        }),
+        functionFixture(359, 'flow', {
+          title: 'Vertical swing',
+          metaData: {bleTagInfo: {bleTag: 'flow', bleOnCommand: 'horizont_on'}},
+        }),
+        functionFixture(361, 'flow', {
+          title: '3D swing',
+          metaData: {bleTagInfo: {bleTag: 'flow', bleOnCommand: '3d_on'}},
+        }),
+      ],
+    }]});
+    const controlDevice = vi.fn().mockResolvedValue(device);
+    const {identifiers, characteristics} = createAccessory(controlDevice, {device});
+    const swingMode = characteristics.get(identifiers.SwingMode)!;
+
+    await swingMode.setHandler!(identifiers.SwingMode.SWING_ENABLED);
+    await swingMode.setHandler!(identifiers.SwingMode.SWING_DISABLED);
+
+    expect(controlDevice).toHaveBeenNthCalledWith(1, 1001, CtrlMode.FanFlow, 360, true);
+    expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.FanFlow, 360, false);
+  });
+
   it('keeps the existing function selection unchanged', () => {
     const functions = DaichiComfortPlatformAccessory.getFunctionsDict(deviceFixture());
 
