@@ -72,6 +72,43 @@ export const mqttModelFixture = {
   devices: [deviceFixture],
 };
 
+export const partialTemperatureMqttModelFixture = {
+  devices: [{
+    id: 1001,
+    serial: 'TEST-SERIAL',
+    status: 'connected',
+    lastOnline: '16:52 25.07',
+    curTemp: 26,
+    isCurrentScheduleUpdated: false,
+    isProgressUpdated: false,
+    isTimerUpdated: false,
+    isCurrentPresetUpdated: false,
+    isTarificationInfoUpdated: false,
+    isDescriptionUpdated: true,
+    isCurrentStateUpdated: true,
+    indicators: {
+      showAfterBlockId: null,
+      items: [{
+        title: 'Temperature sensor',
+        description: 'Room temperature',
+        type: 'DEFAULT',
+        value: '26°C',
+        smallIcon: 'https://example.test/s/temp.png',
+        icon: 'https://example.test/b/temp.png',
+      }],
+    },
+    currentState: [{
+      text: '26°',
+    }],
+  }],
+  presets: [],
+  groupPresets: [],
+  schedules: [],
+  placeSchedules: [],
+  geoData: [],
+  progresses: [],
+};
+
 export const currentBuildingsResponseFixture = {
   done: true,
   errors: null,

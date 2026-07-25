@@ -1,5 +1,5 @@
 import { BuildingsResponse, ControlEnvelope, DeviceEnvelope, TokenResponse, UserResponse } from './models/apiModel';
-import { DaichiInfoModel, Device, Pult, PultFunction } from './models/deviceModel';
+import { DaichiInfoModel, DaichiMqttModel, Device, DeviceUpdate, Pult, PultFunction } from './models/deviceModel';
 
 const MAX_VALUE_RANGE_LENGTH = 256;
 
@@ -20,15 +20,15 @@ export function isDevice(value: unknown): value is Device {
     (value.title === undefined || typeof value.title === 'string');
 }
 
-export function isMqttModel(value: unknown): value is DaichiInfoModel {
-  return isRecord(value) && Array.isArray(value.devices) && value.devices.every(isDevice);
+export function isMqttModel(value: unknown): value is DaichiMqttModel {
+  return isRecord(value) && Array.isArray(value.devices) && value.devices.every(isDeviceUpdate);
 }
 
 export function isControlEnvelope(value: unknown): value is ControlEnvelope {
   return isRecord(value) &&
     value.done === true &&
     value.errors === null &&
-    isMqttModel(value.data);
+    isDaichiInfoModel(value.data);
 }
 
 export function isTokenResponse(value: unknown): value is TokenResponse {
@@ -63,6 +63,28 @@ export function isBuildingsResponse(value: unknown): value is BuildingsResponse 
 
 export function isDeviceEnvelope(value: unknown): value is DeviceEnvelope {
   return isRecord(value) && isDevice(value.data);
+}
+
+function isDaichiInfoModel(value: unknown): value is DaichiInfoModel {
+  return isRecord(value) && Array.isArray(value.devices) && value.devices.every(isDevice);
+}
+
+function isDeviceUpdate(value: unknown): value is DeviceUpdate {
+  if (!isRecord(value) ||
+    !isPositiveInteger(value.id) ||
+    (value.curTemp !== undefined && !isFiniteNumber(value.curTemp)) ||
+    (value.status !== undefined && typeof value.status !== 'string')) {
+    return false;
+  }
+
+  if (value.state !== undefined &&
+    (!isRecord(value.state) ||
+      (value.state.isOn !== undefined && typeof value.state.isOn !== 'boolean'))) {
+    return false;
+  }
+
+  return value.pult === undefined ||
+    (Array.isArray(value.pult) && value.pult.every(isPult));
 }
 
 function isPult(value: unknown): value is Pult {

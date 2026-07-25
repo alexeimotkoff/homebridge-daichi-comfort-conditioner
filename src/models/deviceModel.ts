@@ -2,6 +2,10 @@ export interface DaichiInfoModel {
     devices: Device[];
 }
 
+export interface DaichiMqttModel {
+  devices: DeviceUpdate[];
+}
+
 export interface DaichiInfoCtrlModel {
   data: DaichiInfoModel;
 }
@@ -19,6 +23,14 @@ export interface Device {
   pult: Pult[];
   deviceInfo: DeviceInfo | undefined;
   title: string | undefined;
+}
+
+export interface DeviceUpdate {
+  id: number;
+  curTemp?: number;
+  status?: string;
+  state?: Partial<DeviceState>;
+  pult?: Pult[];
 }
 
 export interface DeviceInfo{

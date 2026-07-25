@@ -10,6 +10,7 @@ import {
   nullableControlEnvelopeFixture,
   nullableDeviceFixture,
   offControlEnvelopeFixture,
+  partialTemperatureMqttModelFixture,
 } from './fixtures/daichi';
 import { isBuildingsResponse, isControlEnvelope, isDevice, isMqttModel } from '../src/validation';
 
@@ -38,6 +39,25 @@ describe('API response validation', () => {
 
   it('accepts a valid MQTT root model', () => {
     expect(isMqttModel(mqttModelFixture)).toBe(true);
+  });
+
+  it('accepts a partial MQTT temperature update without weakening control responses', () => {
+    expect(isMqttModel(partialTemperatureMqttModelFixture)).toBe(true);
+    expect(isControlEnvelope({
+      done: true,
+      errors: null,
+      data: partialTemperatureMqttModelFixture,
+    })).toBe(false);
+  });
+
+  it.each([
+    { label: 'device id', device: { id: '1001', curTemp: 26 } },
+    { label: 'temperature', device: { id: 1001, curTemp: '26' } },
+    { label: 'status', device: { id: 1001, status: 1 } },
+    { label: 'power state', device: { id: 1001, state: { isOn: 'false' } } },
+    { label: 'pult', device: { id: 1001, pult: {} } },
+  ])('rejects a partial MQTT update with malformed $label', ({ device }) => {
+    expect(isMqttModel({ devices: [device] })).toBe(false);
   });
 
   it('accepts nullable fields from current Daichi device responses', () => {

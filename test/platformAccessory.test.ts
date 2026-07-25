@@ -250,6 +250,15 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
     expect(controlDevice).toHaveBeenCalledWith(1001, CtrlMode.FanSpeed, 5, 3);
   });
 
+  it('updates CurrentTemperature from a partial MQTT update while powered off', () => {
+    const device = deviceFixture({curTemp: 25, state: {isOn: false}});
+    const {handler, identifiers, characteristics} = createAccessory(undefined, {device});
+
+    handler.updateDeviceState({id: 1001, curTemp: 26});
+
+    expect(characteristics.get(identifiers.CurrentTemperature)!.updatedValues).toEqual([26]);
+  });
+
   it('uses the flow vert_on function for both SwingMode values regardless of title', async () => {
     const defaultDevice = deviceFixture();
     const device = deviceFixture({pult: [{

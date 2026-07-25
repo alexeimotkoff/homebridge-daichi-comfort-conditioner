@@ -1,12 +1,12 @@
 import { Logger } from 'homebridge';
 import { connect, IClientOptions, MqttClient } from 'mqtt';
-import { Device } from './models/deviceModel';
+import { DeviceUpdate } from './models/deviceModel';
 import { MqttUser } from './models/mqttUser';
 import { isMqttModel } from './validation';
 
 const mqttUrl = 'wss://split.daichicloud.ru/mqtt';
 
-export type DeviceUpdateHandler = (device: Device) => void;
+export type DeviceUpdateHandler = (device: DeviceUpdate) => void;
 export type MqttConnect = (brokerUrl: string, options: IClientOptions) => MqttClient;
 
 export class DaichiMqttClient {

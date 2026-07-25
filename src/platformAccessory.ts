@@ -11,6 +11,7 @@ import {DevState} from './models/devState';
 import {CtrlMode} from './models/ctrlMode';
 import {
     Device,
+    DeviceUpdate,
     PultFunction,
 } from './models/deviceModel';
 
@@ -373,7 +374,7 @@ export class DaichiComfortPlatformAccessory {
      * Initializing the device state
      * @param device Device
      */
-    initDeviceState(device: Device){
+    initDeviceState(device: DeviceUpdate){
         if(!device){
             return;
         }
@@ -382,7 +383,9 @@ export class DaichiComfortPlatformAccessory {
 
         this.state.curTemp = device.curTemp ?? this.state.curTemp;
         this.state.powerState = device.state?.isOn ?? this.state.powerState;
-        this.state.online = device.status !== undefined ? device.status === 'connected' : device.status;
+        if(device.status !== undefined){
+            this.state.online = device.status === 'connected';
+        }
 
         if(funcDict){
             const setTempFunc = funcDict.get(CtrlMode.SetTemp)?.state?.value;
@@ -404,7 +407,7 @@ export class DaichiComfortPlatformAccessory {
      * Update the device state
      * @param device Device
      */
-    updateDeviceState(device: Device){
+    updateDeviceState(device: DeviceUpdate){
         if(!device){
             return;
         }
@@ -557,7 +560,7 @@ export class DaichiComfortPlatformAccessory {
      * Get a dictionary of functions
      * @device Device
      */
-    static getFunctionsDict(device: Device) : Map<CtrlMode, PultFunction> | null{
+    static getFunctionsDict(device: DeviceUpdate) : Map<CtrlMode, PultFunction> | null{
         const funcDict = new Map<CtrlMode, PultFunction | null>();
         const functions = DaichiComfortPlatformAccessory.getFunctions(device);
 
@@ -601,7 +604,7 @@ export class DaichiComfortPlatformAccessory {
      * Get list of functions from device
      * @device Device
      */
-    static getFunctions(device: Device) : PultFunction[]{
+    static getFunctions(device: DeviceUpdate) : PultFunction[]{
         return device?.pult?.filter(x => (x?.functions))
             .flatMap(x => x.functions)
             .flatMap(fn => (fn.linkedFunction) ? [fn, fn.linkedFunction] : fn) ?? [] as PultFunction[];

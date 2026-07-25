@@ -3,7 +3,7 @@ import { Logger } from 'homebridge';
 import { describe, expect, it, vi } from 'vitest';
 import { DaichiMqttClient } from '../src/mqttClient';
 import { MqttUser } from '../src/models/mqttUser';
-import { deviceFixture, mqttModelFixture } from './fixtures/daichi';
+import { deviceFixture, mqttModelFixture, partialTemperatureMqttModelFixture } from './fixtures/daichi';
 
 class FakeMqttClient extends EventEmitter {
   public readonly subscribe = vi.fn();
@@ -173,6 +173,20 @@ describe('DaichiMqttClient', () => {
     expect(onDeviceUpdate).toHaveBeenCalledTimes(2);
     expect(onDeviceUpdate).toHaveBeenNthCalledWith(1, deviceFixture);
     expect(onDeviceUpdate).toHaveBeenNthCalledWith(2, { ...deviceFixture, id: 1002 });
+  });
+
+  it('dispatches a partial temperature update without full device state', () => {
+    const { client, mqtt } = createClient();
+    const onDeviceUpdate = vi.fn();
+
+    mqtt.start(user, onDeviceUpdate);
+    client.emit(
+      'message',
+      'user/7/notification',
+      Buffer.from(JSON.stringify(partialTemperatureMqttModelFixture)),
+    );
+
+    expect(onDeviceUpdate).toHaveBeenCalledWith(partialTemperatureMqttModelFixture.devices[0]);
   });
 
   it('isolates device update failures and continues dispatching safely', () => {
