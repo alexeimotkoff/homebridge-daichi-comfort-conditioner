@@ -232,7 +232,7 @@ export class DaichiComfortPlatformAccessory {
             throw new Error(message);
         }
 
-        const commandParameters = `device=${deviceId}, cmd=${CtrlMode[cmd]}, function=${functionId}`;
+        const commandParameters = `device=${deviceId}, cmd=${CtrlMode[cmd]}, function=${functionId}, value=${val}`;
         this.platform.log.debug(`Sending control request: ${commandParameters}`);
         try {
             const device = await this.platform.getCtrlApi().controlDevice(deviceId, cmd, functionId, val);
@@ -354,7 +354,11 @@ export class DaichiComfortPlatformAccessory {
      * Handle requests to get the current value of the "RotationSpeed" characteristic
      */
     async handleRotationSpeedGet(): Promise<Nullable<CharacteristicValue>> {
-        const value = this.getStateRotationSpeed(this.state.autoFanSpeedIsOn, this.state.fanSpeed);
+        const value = this.getStateRotationSpeed(
+            this.state.powerState,
+            this.state.autoFanSpeedIsOn,
+            this.state.fanSpeed,
+        );
         this.platform.log.debug('Triggered GET RotationSpeed', value);
         return value;
     }
@@ -391,6 +395,7 @@ export class DaichiComfortPlatformAccessory {
         if(funcDict){
             const setTempFunc = funcDict.get(CtrlMode.SetTemp)?.state?.value;
             const fanSpeedFunc = funcDict.get(CtrlMode.FanSpeed)?.state?.value;
+            const manualFanSpeedIsOnFunc = funcDict.get(CtrlMode.FanSpeed)?.state?.isOn;
             const autoFanSpeedIsOnFunc = funcDict.get(CtrlMode.FanSpeedAuto)?.state?.isOn;
             const modeFunc = [funcDict.get(CtrlMode.AutoMode)!, funcDict.get(CtrlMode.HeatMode)!, funcDict.get(CtrlMode.CoolMode)!]
                 .find(x => x?.state?.isOn === true)?.metaData?.bleTagInfo?.bleOnCommand;
@@ -398,7 +403,11 @@ export class DaichiComfortPlatformAccessory {
 
             this.state.setTemp = setTempFunc ?? this.state.setTemp;
             this.state.fanSpeed = fanSpeedFunc ?? this.state.fanSpeed;
-            this.state.autoFanSpeedIsOn = autoFanSpeedIsOnFunc ?? this.state.autoFanSpeedIsOn;
+            if(autoFanSpeedIsOnFunc !== undefined){
+                this.state.autoFanSpeedIsOn = autoFanSpeedIsOnFunc;
+            } else if(manualFanSpeedIsOnFunc === true){
+                this.state.autoFanSpeedIsOn = false;
+            }
             this.state.mode = modeFunc ?? this.state.mode;
             this.state.swingMode = swingModeFunc ?? this.state.swingMode;
         }
@@ -448,8 +457,8 @@ export class DaichiComfortPlatformAccessory {
             this.getStateSwingMode(this.state.swingMode),
             this.platform.Characteristic.SwingMode);
 
-        this.chekAndUpdateState(this.getStateRotationSpeed(oldAutoFanSpeedIsOn, oldFanSpeed),
-            this.getStateRotationSpeed(this.state.autoFanSpeedIsOn, this.state.fanSpeed),
+        this.chekAndUpdateState(this.getStateRotationSpeed(oldPowerState, oldAutoFanSpeedIsOn, oldFanSpeed),
+            this.getStateRotationSpeed(this.state.powerState, this.state.autoFanSpeedIsOn, this.state.fanSpeed),
             this.platform.Characteristic.RotationSpeed);
     }
 
@@ -542,8 +551,12 @@ export class DaichiComfortPlatformAccessory {
     /**
      * Get state Rotation Speed characteristic
      */
-    getStateRotationSpeed(autoFanSpeedIsOn: boolean, fanSpeed: number): Nullable<CharacteristicValue>{
-        return autoFanSpeedIsOn ? 0 : fanSpeed * this.fanSpeedMinStep;
+    getStateRotationSpeed(
+        powerState: boolean,
+        autoFanSpeedIsOn: boolean,
+        fanSpeed: number,
+    ): Nullable<CharacteristicValue>{
+        return !powerState || autoFanSpeedIsOn ? 0 : fanSpeed * this.fanSpeedMinStep;
     }
 
     /**

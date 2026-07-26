@@ -251,6 +251,44 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
     expect(controlDevice).toHaveBeenCalledWith(1001, CtrlMode.FanSpeed, 5, 3);
   });
 
+  it('reports zero RotationSpeed while the air conditioner is powered off', async () => {
+    const {identifiers, characteristics} = createAccessory(undefined, {
+      device: deviceFixture({state: {isOn: false}}),
+    });
+
+    await expect(characteristics.get(identifiers.RotationSpeed)!.getHandler!()).resolves.toBe(0);
+  });
+
+  it('uses an active manual fan speed instead of a stale Auto state', async () => {
+    const initialDevice = deviceFixture({pult: [{
+      functions: [
+        functionFixture(350, 'power', {state: {isOn: true}}),
+        functionFixture(357, 'fanSpeed', {
+          title: 'Auto',
+          state: {isOn: true},
+          metaData: {bleTagInfo: {bleTag: 'fanSpeed', bleOnCommand: '0'}},
+        }),
+        functionFixture(358, 'fanSpeed', {
+          title: 'Fan speed',
+          state: {isOn: false, value: 1, valueRange: [1, 5]},
+        }),
+      ],
+    }]});
+    const {handler, identifiers, characteristics} = createAccessory(undefined, {device: initialDevice});
+
+    handler.updateDeviceState({
+      id: 1001,
+      pult: [{
+        functions: [functionFixture(358, 'fanSpeed', {
+          title: 'Fan speed',
+          state: {isOn: true, value: 1, valueRange: [1, 5]},
+        })],
+      }],
+    });
+
+    await expect(characteristics.get(identifiers.RotationSpeed)!.getHandler!()).resolves.toBe(20);
+  });
+
   it('updates CurrentTemperature from a partial MQTT update while powered off', () => {
     const device = deviceFixture({curTemp: 25, state: {isOn: false}});
     const {handler, identifiers, characteristics} = createAccessory(undefined, {device});

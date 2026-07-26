@@ -210,8 +210,10 @@ describe('HttpApi', () => {
     await expect(ctrl.ctrl.call(context, CtrlMode.IsOn, true)).rejects.toThrow('request failed');
 
     expect(updateDeviceState).toHaveBeenCalledWith(deviceFixture);
-    expect(log.debug).toHaveBeenNthCalledWith(1, 'Sending control request: device=1001, cmd=IsOn, function=350');
-    expect(log.debug).toHaveBeenNthCalledWith(2, 'Accepted control request: device=1001, cmd=IsOn, function=350');
-    expect(log.error).toHaveBeenCalledWith('Failed control request: device=1001, cmd=IsOn, function=350: request failed');
+    expect(log.debug).toHaveBeenNthCalledWith(1, 'Sending control request: device=1001, cmd=IsOn, function=350, value=true');
+    expect(log.debug).toHaveBeenNthCalledWith(2, 'Accepted control request: device=1001, cmd=IsOn, function=350, value=true');
+    expect(log.error).toHaveBeenCalledWith(
+      'Failed control request: device=1001, cmd=IsOn, function=350, value=true: request failed',
+    );
   });
 });
