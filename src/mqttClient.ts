@@ -2,7 +2,7 @@ import { Logger } from 'homebridge';
 import { connect, IClientOptions, MqttClient } from 'mqtt';
 import { DeviceUpdate } from './models/deviceModel';
 import { MqttUser } from './models/mqttUser';
-import { isMqttModel } from './validation';
+import { getMqttDeviceUpdates } from './validation';
 
 const mqttUrl = 'wss://split.daichicloud.ru/mqtt';
 
@@ -118,11 +118,12 @@ export class DaichiMqttClient {
         return;
       }
 
-      if (!isMqttModel(model)) {
+      const devices = getMqttDeviceUpdates(model);
+      if (devices === null) {
         return;
       }
 
-      model.devices.forEach((device) => {
+      devices.forEach((device) => {
         try {
           onDeviceUpdate(device);
         } catch {

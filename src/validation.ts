@@ -1,7 +1,16 @@
 import { BuildingsResponse, ControlEnvelope, DeviceEnvelope, TokenResponse, UserResponse } from './models/apiModel';
-import { DaichiInfoModel, DaichiMqttModel, Device, DeviceUpdate, Pult, PultFunction } from './models/deviceModel';
+import {
+  DaichiInfoModel,
+  DaichiMqttModel,
+  Device,
+  DeviceUpdate,
+  Pult,
+  PultFunction,
+  PultFunctionUpdate,
+} from './models/deviceModel';
 
 const MAX_VALUE_RANGE_LENGTH = 256;
+const MQTT_FUNCTION_TAGS = new Set(['power', 'setTemp', 'flow', 'fanSpeed', 'mode']);
 
 export function isDevice(value: unknown): value is Device {
   if (!isRecord(value) ||
@@ -22,6 +31,17 @@ export function isDevice(value: unknown): value is Device {
 
 export function isMqttModel(value: unknown): value is DaichiMqttModel {
   return isRecord(value) && Array.isArray(value.devices) && value.devices.every(isDeviceUpdate);
+}
+
+export function getMqttDeviceUpdates(value: unknown): DeviceUpdate[] | null {
+  if (!isRecord(value) || !Array.isArray(value.devices)) {
+    return null;
+  }
+
+  return value.devices.flatMap((device) => {
+    const update = normalizeMqttDeviceUpdate(device);
+    return update ? [update] : [];
+  });
 }
 
 export function isControlEnvelope(value: unknown): value is ControlEnvelope {
@@ -85,6 +105,111 @@ function isDeviceUpdate(value: unknown): value is DeviceUpdate {
 
   return value.pult === undefined ||
     (Array.isArray(value.pult) && value.pult.every(isPult));
+}
+
+function normalizeMqttDeviceUpdate(value: unknown): DeviceUpdate | null {
+  if (!isRecord(value) || !isPositiveInteger(value.id)) {
+    return null;
+  }
+
+  const update: DeviceUpdate = { id: value.id };
+  if (isFiniteNumber(value.curTemp)) {
+    update.curTemp = value.curTemp;
+  }
+  if (isRecord(value.state) && typeof value.state.isOn === 'boolean') {
+    update.state = { isOn: value.state.isOn };
+  }
+
+  const functions = normalizeMqttFunctions(value.pult);
+  if (functions.length > 0) {
+    update.pult = [{ functions }];
+  }
+
+  return update;
+}
+
+function normalizeMqttFunctions(value: unknown): PultFunctionUpdate[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const functions: PultFunctionUpdate[] = [];
+  for (const pult of value) {
+    if (!isRecord(pult) || !Array.isArray(pult.functions)) {
+      continue;
+    }
+
+    for (const pultFunction of pult.functions) {
+      functions.push(...normalizeMqttFunction(pultFunction));
+    }
+  }
+
+  return functions;
+}
+
+function normalizeMqttFunction(
+  value: unknown,
+  ancestors: ReadonlySet<Record<string, unknown>> = new Set(),
+  depth = 0,
+): PultFunctionUpdate[] {
+  if (!isRecord(value) || depth > 16 || ancestors.has(value)) {
+    return [];
+  }
+
+  const nextAncestors = new Set(ancestors);
+  nextAncestors.add(value);
+  const linkedFunctions = normalizeMqttFunction(value.linkedFunction, nextAncestors, depth + 1);
+
+  const bleTag = isRecord(value.metaData) &&
+    isRecord(value.metaData.bleTagInfo) &&
+    typeof value.metaData.bleTagInfo.bleTag === 'string'
+    ? value.metaData.bleTagInfo.bleTag
+    : null;
+  if (!isPositiveInteger(value.id) ||
+    !isRecord(value.metaData) ||
+    !isRecord(value.metaData.bleTagInfo) ||
+    bleTag === null ||
+    !MQTT_FUNCTION_TAGS.has(bleTag)) {
+    return linkedFunctions;
+  }
+
+  const bleTagInfo = value.metaData.bleTagInfo;
+  const normalized: PultFunctionUpdate = {
+    id: value.id,
+    metaData: {
+      bleTagInfo: {
+        bleTag,
+      },
+    },
+  };
+
+  if (typeof value.title === 'string' || value.title === null) {
+    normalized.title = value.title;
+  }
+  if (typeof bleTagInfo.bleOnCommand === 'string' || bleTagInfo.bleOnCommand === null) {
+    normalized.metaData.bleTagInfo.bleOnCommand = bleTagInfo.bleOnCommand;
+  }
+
+  if (isRecord(value.state)) {
+    const state: Partial<PultFunction['state']> = {};
+    if (typeof value.state.isOn === 'boolean') {
+      state.isOn = value.state.isOn;
+    }
+    if (isFiniteNumber(value.state.value)) {
+      state.value = value.state.value;
+    }
+    if (isFiniteNumberArray(value.state.valueRange) &&
+      (value.title !== 'Fan speed' ||
+        bleTagInfo.bleTag !== 'fanSpeed' ||
+        isSafeFanSpeedRange(value.state.valueRange))) {
+      state.valueRange = [...value.state.valueRange];
+    }
+    if (Object.keys(state).length > 0) {
+      normalized.state = state;
+    }
+  }
+
+  return [normalized, ...linkedFunctions];
 }
 
 function isPult(value: unknown): value is Pult {

@@ -171,8 +171,16 @@ describe('DaichiMqttClient', () => {
     client.emit('message', 'user/7/notification', Buffer.from(JSON.stringify(message)));
 
     expect(onDeviceUpdate).toHaveBeenCalledTimes(2);
-    expect(onDeviceUpdate).toHaveBeenNthCalledWith(1, deviceFixture);
-    expect(onDeviceUpdate).toHaveBeenNthCalledWith(2, { ...deviceFixture, id: 1002 });
+    expect(onDeviceUpdate).toHaveBeenNthCalledWith(1, {
+      id: 1001,
+      curTemp: 22,
+      state: { isOn: true },
+    });
+    expect(onDeviceUpdate).toHaveBeenNthCalledWith(2, {
+      id: 1002,
+      curTemp: 22,
+      state: { isOn: true },
+    });
   });
 
   it('dispatches a partial temperature update without full device state', () => {
@@ -186,7 +194,68 @@ describe('DaichiMqttClient', () => {
       Buffer.from(JSON.stringify(partialTemperatureMqttModelFixture)),
     );
 
-    expect(onDeviceUpdate).toHaveBeenCalledWith(partialTemperatureMqttModelFixture.devices[0]);
+    expect(onDeviceUpdate).toHaveBeenCalledWith({ id: 1001, curTemp: 26 });
+  });
+
+  it('dispatches only useful fields from devices and pult entries independently', () => {
+    const { client, mqtt } = createClient();
+    const onDeviceUpdate = vi.fn();
+    const message = {
+      devices: [
+        {
+          id: 1001,
+          curTemp: 26,
+          status: { unexpected: true },
+          state: { isOn: true, futureState: 'ignored' },
+          pult: [
+            { futurePult: true },
+            {
+              functions: [
+                {
+                  id: 900,
+                  state: { isOn: true },
+                  metaData: { bleTagInfo: { bleTag: 'futureFunction' } },
+                },
+                null,
+                {
+                  id: 351,
+                  state: { value: 24, futureState: 'ignored' },
+                  metaData: {
+                    bleTagInfo: { bleTag: 'setTemp', futureMetadata: 'ignored' },
+                    futureMetadata: 'ignored',
+                  },
+                  linkedFunction: 'ignored',
+                  futureFunction: 'ignored',
+                },
+              ],
+            },
+            'futurePult',
+          ],
+          futureDevice: 'ignored',
+        },
+        { id: 'invalid', curTemp: 99 },
+        { id: 1002, curTemp: 27, futureDevice: true },
+      ],
+      futureRoot: true,
+    };
+
+    mqtt.start(user, onDeviceUpdate);
+    client.emit('message', 'user/7/notification', Buffer.from(JSON.stringify(message)));
+
+    expect(onDeviceUpdate).toHaveBeenCalledTimes(2);
+    expect(onDeviceUpdate).toHaveBeenNthCalledWith(1, {
+      id: 1001,
+      curTemp: 26,
+      state: { isOn: true },
+      pult: [{
+        functions: [{
+          id: 351,
+          state: { value: 24 },
+          metaData: { bleTagInfo: { bleTag: 'setTemp' } },
+        }],
+      }],
+    });
+    expect(onDeviceUpdate).toHaveBeenNthCalledWith(2, { id: 1002, curTemp: 27 });
   });
 
   it('isolates device update failures and continues dispatching safely', () => {

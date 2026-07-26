@@ -12,7 +12,7 @@ import {CtrlMode} from './models/ctrlMode';
 import {
     Device,
     DeviceUpdate,
-    PultFunction,
+    PultFunctionUpdate,
 } from './models/deviceModel';
 
 type GetHandler = () => Promise<Nullable<CharacteristicValue>>;
@@ -249,7 +249,7 @@ export class DaichiComfortPlatformAccessory {
      * Handle requests to get the current value of the "Active" characteristic
      */
     async handleActiveGet(): Promise<Nullable<CharacteristicValue>> {
-        const value = this.getStateActive(this.state.powerState, this.state.online);
+        const value = this.getStateActive(this.state.powerState);
         this.platform.log.debug('Triggered GET Active:', value);
         return value;
     }
@@ -275,7 +275,7 @@ export class DaichiComfortPlatformAccessory {
      * Handle requests to get the current value of the "Current Heating Cooling State" characteristic
      */
     async handleCurrentHeaterCoolerStateGet(): Promise<Nullable<CharacteristicValue>> {
-        const value = this.getStateCurrentHeaterCoolerState(this.state.powerState, this.state.online, 
+        const value = this.getStateCurrentHeaterCoolerState(this.state.powerState,
             this.state.curTemp, this.state.setTemp, this.state.mode);
         this.platform.log.debug('Triggered GET CurrentHeatingCoolingState', value);
         return value;
@@ -387,9 +387,6 @@ export class DaichiComfortPlatformAccessory {
 
         this.state.curTemp = device.curTemp ?? this.state.curTemp;
         this.state.powerState = device.state?.isOn ?? this.state.powerState;
-        if(device.status !== undefined){
-            this.state.online = device.status === 'connected';
-        }
 
         if(funcDict){
             const setTempFunc = funcDict.get(CtrlMode.SetTemp)?.state?.value;
@@ -418,7 +415,6 @@ export class DaichiComfortPlatformAccessory {
 
         const oldCurTemp = this.state.curTemp;
         const oldPowerState = this.state.powerState;
-        const oldOnline = this.state.online;
         const oldSetTemp = this.state.setTemp;
         const oldFanSpeed = this.state.fanSpeed;
         const oldAutoFanSpeedIsOn = this.state.autoFanSpeedIsOn;
@@ -428,16 +424,16 @@ export class DaichiComfortPlatformAccessory {
         this.setFunctionsDict(device);
         this.initDeviceState(device);
 
-        this.chekAndUpdateState(this.getStateActive(oldPowerState, oldOnline),
-            this.getStateActive(this.state.powerState, this.state.online),
+        this.chekAndUpdateState(this.getStateActive(oldPowerState),
+            this.getStateActive(this.state.powerState),
             this.platform.Characteristic.Active);
 
         this.chekAndUpdateState(this.getStateCurrentTemperature(oldCurTemp),
             this.getStateCurrentTemperature(this.state.curTemp),
             this.platform.Characteristic.CurrentTemperature);
         
-        this.chekAndUpdateState(this.getStateCurrentHeaterCoolerState(oldPowerState, oldOnline, oldCurTemp, oldSetTemp, oldMode),
-            this.getStateCurrentHeaterCoolerState(this.state.powerState, this.state.online, this.state.curTemp, this.state.setTemp, this.state.mode),
+        this.chekAndUpdateState(this.getStateCurrentHeaterCoolerState(oldPowerState, oldCurTemp, oldSetTemp, oldMode),
+            this.getStateCurrentHeaterCoolerState(this.state.powerState, this.state.curTemp, this.state.setTemp, this.state.mode),
             this.platform.Characteristic.CurrentHeaterCoolerState);
 
         this.chekAndUpdateState(this.getStateTargetHeaterCoolerState(oldMode),
@@ -474,8 +470,8 @@ export class DaichiComfortPlatformAccessory {
     /**
      * Get state Active characteristic
      */
-    getStateActive(powerState: boolean, online: boolean): Nullable<CharacteristicValue>{
-        return powerState && online
+    getStateActive(powerState: boolean): Nullable<CharacteristicValue>{
+        return powerState
             ? this.platform.Characteristic.Active.ACTIVE 
             : this.platform.Characteristic.Active.INACTIVE;
     }
@@ -490,11 +486,11 @@ export class DaichiComfortPlatformAccessory {
     /**
      * Get state Current Heater Cooler State characteristic
      */
-    getStateCurrentHeaterCoolerState(powerState: boolean, online: boolean, curTemp: number,
+    getStateCurrentHeaterCoolerState(powerState: boolean, curTemp: number,
         setTemp: number, mode: string): Nullable<CharacteristicValue>{
         let value = this.platform.Characteristic.CurrentHeaterCoolerState.IDLE;
 
-        if (!powerState || !online) {
+        if (!powerState) {
             value = this.platform.Characteristic.CurrentHeaterCoolerState.INACTIVE;
         } else{
             if(mode === 'heat'){
@@ -559,7 +555,7 @@ export class DaichiComfortPlatformAccessory {
         if(result){
             result.forEach((value, key) => {
                 const current = this.functionsDict.get(key);
-                const receivedValueRange = value.state.valueRange;
+                const receivedValueRange = value.state?.valueRange;
                 const valueRange = receivedValueRange ?? current?.valueRange;
                 const valueRangeChanged = receivedValueRange !== undefined &&
                     (current?.valueRange?.length !== receivedValueRange.length ||
@@ -581,8 +577,8 @@ export class DaichiComfortPlatformAccessory {
      * Get a dictionary of functions
      * @device Device
      */
-    static getFunctionsDict(device: DeviceUpdate) : Map<CtrlMode, PultFunction> | null{
-        const funcDict = new Map<CtrlMode, PultFunction | null>();
+    static getFunctionsDict(device: DeviceUpdate) : Map<CtrlMode, PultFunctionUpdate> | null{
+        const funcDict = new Map<CtrlMode, PultFunctionUpdate | null>();
         const functions = DaichiComfortPlatformAccessory.getFunctions(device);
 
         if(functions.length === 0){
@@ -598,8 +594,8 @@ export class DaichiComfortPlatformAccessory {
         funcDict.set(CtrlMode.HeatMode, DaichiComfortPlatformAccessory.searchFunction('mode', functions, 'Heat', 'heat'));
         funcDict.set(CtrlMode.CoolMode, DaichiComfortPlatformAccessory.searchFunction('mode', functions, 'Cool', 'cool'));
 
-        const result = new Map<CtrlMode, PultFunction>();
-        funcDict.forEach((value: PultFunction | null, key: CtrlMode) => {
+        const result = new Map<CtrlMode, PultFunctionUpdate>();
+        funcDict.forEach((value: PultFunctionUpdate | null, key: CtrlMode) => {
             if(value){
                 result.set(key, value);
             }
@@ -615,7 +611,12 @@ export class DaichiComfortPlatformAccessory {
      * @title Title in function
      * @onCommand OnCommand value in function
      */
-    static searchFunction(tag : string, functions : PultFunction[], title? : string, onCommand? : string) : PultFunction | null{
+    static searchFunction(
+        tag : string,
+        functions : PultFunctionUpdate[],
+        title? : string,
+        onCommand? : string,
+    ) : PultFunctionUpdate | null{
         return functions?.find(x => (!title || x.title === title) &&
             (!onCommand || x.metaData?.bleTagInfo?.bleOnCommand === onCommand) &&
             x?.metaData?.bleTagInfo?.bleTag === tag) ?? null;
@@ -625,9 +626,9 @@ export class DaichiComfortPlatformAccessory {
      * Get list of functions from device
      * @device Device
      */
-    static getFunctions(device: DeviceUpdate) : PultFunction[]{
+    static getFunctions(device: DeviceUpdate) : PultFunctionUpdate[]{
         return device?.pult?.filter(x => (x?.functions))
             .flatMap(x => x.functions)
-            .flatMap(fn => (fn.linkedFunction) ? [fn, fn.linkedFunction] : fn) ?? [] as PultFunction[];
+            .flatMap(fn => (fn.linkedFunction) ? [fn, fn.linkedFunction] : fn) ?? [] as PultFunctionUpdate[];
     }
 }

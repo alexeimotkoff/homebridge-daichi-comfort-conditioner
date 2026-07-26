@@ -30,7 +30,7 @@ export interface DeviceUpdate {
   curTemp?: number;
   status?: string;
   state?: Partial<DeviceState>;
-  pult?: Pult[];
+  pult?: PultUpdate[];
 }
 
 export interface DeviceInfo{
@@ -47,6 +47,10 @@ export interface Pult {
   functions: PultFunction[];
 }
 
+export interface PultUpdate {
+  functions: PultFunctionUpdate[];
+}
+
 export interface State {
   value?: number | null;
   isOn: boolean;
@@ -59,6 +63,14 @@ export interface PultFunction {
   state: State;
   metaData: MetaData;
   linkedFunction?: PultFunction | null;
+}
+
+export interface PultFunctionUpdate {
+  id: number;
+  title?: string | null;
+  state?: Partial<State>;
+  metaData: MetaData;
+  linkedFunction?: PultFunctionUpdate | null;
 }
 
 export interface MetaData {

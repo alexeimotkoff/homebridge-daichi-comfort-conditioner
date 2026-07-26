@@ -260,6 +260,17 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
     expect(characteristics.get(identifiers.CurrentTemperature)!.updatedValues).toEqual([26]);
   });
 
+  it('does not treat a device status as the air conditioner power state', async () => {
+    const {handler, identifiers, characteristics} = createAccessory();
+
+    handler.updateDeviceState({id: 1001, status: 'disconnected'});
+
+    await expect(characteristics.get(identifiers.Active)!.getHandler!())
+      .resolves.toBe(identifiers.Active.ACTIVE);
+    await expect(characteristics.get(identifiers.CurrentHeaterCoolerState)!.getHandler!())
+      .resolves.toBe(identifiers.CurrentHeaterCoolerState.IDLE);
+  });
+
   it('learns FanSpeed and its value range from a full MQTT update', async () => {
     const initialDevice = deviceFixture({pult: [{
       functions: [functionFixture(350, 'power', {state: {isOn: true}})],
