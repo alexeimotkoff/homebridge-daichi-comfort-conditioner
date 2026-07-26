@@ -47,7 +47,6 @@ export class DaichiComfortPlatformAccessory {
         this.state = new DevState();
         this.setFunctionsDict(this.dev);
         this.initDeviceState(this.dev);
-        this.fanSpeedMinStep = Math.floor(100 / Math.max(...(this.functionsDict.get(CtrlMode.FanSpeed)?.state?.valueRange ?? [20])));
 
         if (activate) {
             this.activate();
@@ -421,6 +420,7 @@ export class DaichiComfortPlatformAccessory {
         const oldMode = this.state.mode;
         const oldSwingMode = this.state.swingMode;
 
+        this.setFunctionsDict(device);
         this.initDeviceState(device);
 
         this.chekAndUpdateState(this.getStateActive(oldPowerState, oldOnline),
@@ -549,10 +549,12 @@ export class DaichiComfortPlatformAccessory {
      * Set a dictionary of functions
      * @device Device
      */
-    setFunctionsDict(device: Device){
+    setFunctionsDict(device: DeviceUpdate){
         const result = DaichiComfortPlatformAccessory.getFunctionsDict(device);
         if(result){
             this.functionsDict = result;
+            this.fanSpeedMinStep = Math.floor(100 /
+                Math.max(...(this.functionsDict.get(CtrlMode.FanSpeed)?.state?.valueRange ?? [20])));
         }
     }
 

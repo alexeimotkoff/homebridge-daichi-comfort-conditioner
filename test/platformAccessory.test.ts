@@ -259,6 +259,44 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
     expect(characteristics.get(identifiers.CurrentTemperature)!.updatedValues).toEqual([26]);
   });
 
+  it('learns FanSpeed and its value range from a full MQTT update', async () => {
+    const initialDevice = deviceFixture({pult: [{
+      functions: [functionFixture(350, 'power', {state: {isOn: true}})],
+    }]});
+    const updatedDevice = deviceFixture({pult: [{
+      functions: [
+        functionFixture(350, 'power', {state: {isOn: true}}),
+        functionFixture(357, 'fanSpeed', {
+          title: 'Auto',
+          state: {isOn: false},
+          metaData: {bleTagInfo: {bleTag: 'fanSpeed', bleOnCommand: '0'}},
+        }),
+        functionFixture(358, 'fanSpeed', {
+          title: 'Fan speed',
+          state: {isOn: true, value: 2, valueRange: [1, 5]},
+        }),
+      ],
+    }]});
+    const controlDevice = vi.fn().mockResolvedValue(updatedDevice);
+    const {handler, identifiers, characteristics} = createAccessory(controlDevice, {device: initialDevice});
+
+    handler.updateDeviceState(updatedDevice);
+    await expect(characteristics.get(identifiers.RotationSpeed)!.setHandler!(60)).resolves.toBeUndefined();
+
+    expect(controlDevice).toHaveBeenCalledWith(1001, CtrlMode.FanSpeed, 358, 3);
+  });
+
+  it('keeps the existing FanSpeed mapping after a partial MQTT update', async () => {
+    const device = deviceFixture();
+    const controlDevice = vi.fn().mockResolvedValue(device);
+    const {handler, identifiers, characteristics} = createAccessory(controlDevice, {device});
+
+    handler.updateDeviceState({id: 1001, curTemp: 26});
+    await expect(characteristics.get(identifiers.RotationSpeed)!.setHandler!(60)).resolves.toBeUndefined();
+
+    expect(controlDevice).toHaveBeenCalledWith(1001, CtrlMode.FanSpeed, 5, 3);
+  });
+
   it('uses the flow vert_on function for both SwingMode values regardless of title', async () => {
     const defaultDevice = deviceFixture();
     const device = deviceFixture({pult: [{
