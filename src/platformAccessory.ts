@@ -29,10 +29,15 @@ interface RuntimeCharacteristicHandlers {
     setHandler?: unknown;
 }
 
+interface FunctionCommand {
+    id: number;
+    valueRange?: number[];
+}
+
 export class DaichiComfortPlatformAccessory {
     private service!: Service;
     private state: DevState;
-    private functionsDict = new Map<CtrlMode, PultFunction>();
+    private functionsDict = new Map<CtrlMode, FunctionCommand>();
     private fanSpeedMinStep: number = 1;
     private activated = false;
     private createdService = false;
@@ -111,8 +116,8 @@ export class DaichiComfortPlatformAccessory {
         )
             .setProps({
                 minStep: 1,
-                minValue: Math.min(...(this.functionsDict.get(CtrlMode.SetTemp)?.state?.valueRange ?? [0])),
-                maxValue: Math.max(...(this.functionsDict.get(CtrlMode.SetTemp)?.state?.valueRange ?? [0])),
+                minValue: Math.min(...(this.functionsDict.get(CtrlMode.SetTemp)?.valueRange ?? [0])),
+                maxValue: Math.max(...(this.functionsDict.get(CtrlMode.SetTemp)?.valueRange ?? [0])),
             });
 
         this.bindCharacteristic(
@@ -122,8 +127,8 @@ export class DaichiComfortPlatformAccessory {
         )
             .setProps({
                 minStep: 1,
-                minValue: Math.min(...(this.functionsDict.get(CtrlMode.SetTemp)?.state?.valueRange ?? [0])),
-                maxValue: Math.max(...(this.functionsDict.get(CtrlMode.SetTemp)?.state?.valueRange ?? [0])),
+                minValue: Math.min(...(this.functionsDict.get(CtrlMode.SetTemp)?.valueRange ?? [0])),
+                maxValue: Math.max(...(this.functionsDict.get(CtrlMode.SetTemp)?.valueRange ?? [0])),
             });
 
         this.bindCharacteristic(
@@ -552,9 +557,23 @@ export class DaichiComfortPlatformAccessory {
     setFunctionsDict(device: DeviceUpdate){
         const result = DaichiComfortPlatformAccessory.getFunctionsDict(device);
         if(result){
-            this.functionsDict = result;
+            result.forEach((value, key) => {
+                const current = this.functionsDict.get(key);
+                const receivedValueRange = value.state.valueRange;
+                const valueRange = receivedValueRange ?? current?.valueRange;
+                const valueRangeChanged = receivedValueRange !== undefined &&
+                    (current?.valueRange?.length !== receivedValueRange.length ||
+                    receivedValueRange.some((item, index) => current?.valueRange?.[index] !== item));
+
+                if(!current || current.id !== value.id || valueRangeChanged){
+                    this.functionsDict.set(key, {
+                        id: value.id,
+                        ...(valueRange !== undefined ? {valueRange: [...valueRange]} : {}),
+                    });
+                }
+            });
             this.fanSpeedMinStep = Math.floor(100 /
-                Math.max(...(this.functionsDict.get(CtrlMode.FanSpeed)?.state?.valueRange ?? [20])));
+                Math.max(...(this.functionsDict.get(CtrlMode.FanSpeed)?.valueRange ?? [20])));
         }
     }
 

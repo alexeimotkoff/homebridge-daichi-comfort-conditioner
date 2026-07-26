@@ -217,6 +217,7 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
     completeControl(deviceFixture({state: {isOn: false}}));
 
     await expect(setting).resolves.toBeUndefined();
+    expect(controlDevice).toHaveBeenCalledTimes(1);
     expect(controlDevice).toHaveBeenCalledWith(1001, CtrlMode.IsOn, 1, false);
     await expect(active.getHandler!()).resolves.toBe(identifiers.Active.INACTIVE);
   });
@@ -294,6 +295,56 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
     handler.updateDeviceState({id: 1001, curTemp: 26});
     await expect(characteristics.get(identifiers.RotationSpeed)!.setHandler!(60)).resolves.toBeUndefined();
 
+    expect(controlDevice).toHaveBeenCalledWith(1001, CtrlMode.FanSpeed, 5, 3);
+  });
+
+  it('keeps the existing FanSpeed mapping after a sparse pult update', async () => {
+    const device = deviceFixture();
+    const controlDevice = vi.fn().mockResolvedValue(device);
+    const {handler, identifiers, characteristics} = createAccessory(controlDevice, {device});
+
+    handler.updateDeviceState({
+      id: 1001,
+      pult: [{
+        functions: [functionFixture(350, 'power', {state: {isOn: false}})],
+      }],
+    });
+    await expect(characteristics.get(identifiers.RotationSpeed)!.setHandler!(60)).resolves.toBeUndefined();
+
+    expect(controlDevice).toHaveBeenCalledWith(1001, CtrlMode.FanSpeed, 5, 3);
+  });
+
+  it('updates a changed FanSpeed id without dropping the existing value range', async () => {
+    const device = deviceFixture();
+    const controlDevice = vi.fn().mockResolvedValue(device);
+    const {handler, identifiers, characteristics} = createAccessory(controlDevice, {device});
+
+    handler.updateDeviceState({
+      id: 1001,
+      pult: [{
+        functions: [functionFixture(358, 'fanSpeed', {
+          title: 'Fan speed',
+          state: {isOn: true, value: 2},
+        })],
+      }],
+    });
+    await expect(characteristics.get(identifiers.RotationSpeed)!.setHandler!(60)).resolves.toBeUndefined();
+
+    expect(controlDevice).toHaveBeenCalledWith(1001, CtrlMode.FanSpeed, 358, 3);
+  });
+
+  it('processes Active and RotationSpeed sent concurrently without extra commands', async () => {
+    const device = deviceFixture();
+    const controlDevice = vi.fn().mockResolvedValue(device);
+    const {identifiers, characteristics} = createAccessory(controlDevice, {device});
+
+    await Promise.all([
+      characteristics.get(identifiers.Active)!.setHandler!(identifiers.Active.ACTIVE),
+      characteristics.get(identifiers.RotationSpeed)!.setHandler!(60),
+    ]);
+
+    expect(controlDevice).toHaveBeenCalledTimes(2);
+    expect(controlDevice).toHaveBeenCalledWith(1001, CtrlMode.IsOn, 1, true);
     expect(controlDevice).toHaveBeenCalledWith(1001, CtrlMode.FanSpeed, 5, 3);
   });
 
