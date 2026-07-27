@@ -222,6 +222,32 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
     await expect(active.getHandler!()).resolves.toBe(identifiers.Active.INACTIVE);
   });
 
+  it('logs HAP UUID and IID mappings for Active and SwingMode writes', async () => {
+    const {identifiers, characteristics, platform} = createAccessory();
+    const active = characteristics.get(identifiers.Active)!;
+    const swingMode = characteristics.get(identifiers.SwingMode)!;
+    Object.assign(active, {
+      UUID: '000000B0-0000-1000-8000-0026BB765291',
+      iid: 10,
+    });
+    Object.assign(swingMode, {
+      UUID: '000000B6-0000-1000-8000-0026BB765291',
+      iid: 18,
+    });
+
+    await active.setHandler!(identifiers.Active.INACTIVE);
+    await swingMode.setHandler!(identifiers.SwingMode.SWING_ENABLED);
+
+    expect(platform.log.debug).toHaveBeenCalledWith(
+      'HAP SET: device=1001, characteristic=Active, uuid=000000B0-0000-1000-8000-0026BB765291, ' +
+      'iid=10, value=0, activeIid=10, swingIid=18',
+    );
+    expect(platform.log.debug).toHaveBeenCalledWith(
+      'HAP SET: device=1001, characteristic=SwingMode, uuid=000000B6-0000-1000-8000-0026BB765291, ' +
+      'iid=18, value=1, activeIid=10, swingIid=18',
+    );
+  });
+
   it('propagates control failures from Active onSet', async () => {
     const controlDevice = vi.fn().mockRejectedValue(new Error('control failed'));
     const {identifiers, characteristics} = createAccessory(controlDevice);

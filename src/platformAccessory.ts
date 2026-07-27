@@ -258,6 +258,11 @@ export class DaichiComfortPlatformAccessory {
      * Handle requests to set the "Active" characteristic
      */
     async handleActiveSet(value: CharacteristicValue): Promise<void> {
+        this.logHapSet(
+            'Active',
+            this.service.getCharacteristic(this.platform.Characteristic.Active),
+            value,
+        );
         this.platform.log.debug('Triggered SET Active:', value);
         await this.ctrl(CtrlMode.IsOn, !!value);
     }
@@ -346,8 +351,27 @@ export class DaichiComfortPlatformAccessory {
      * Handle requests to set the "Swing Mode" characteristic
      */
     async handleSwingModeSet(value: CharacteristicValue): Promise<void> {
+        this.logHapSet(
+            'SwingMode',
+            this.service.getCharacteristic(this.platform.Characteristic.SwingMode),
+            value,
+        );
         await this.ctrl(CtrlMode.FanFlow, value === this.platform.Characteristic.SwingMode.SWING_ENABLED);
         this.platform.log.debug('Triggered SET SwingMode:', value);
+    }
+
+    private logHapSet(
+        characteristicName: 'Active' | 'SwingMode',
+        characteristic: Characteristic,
+        value: CharacteristicValue,
+    ): void {
+        const activeIid = this.service.getCharacteristic(this.platform.Characteristic.Active).iid ?? 'unassigned';
+        const swingIid = this.service.getCharacteristic(this.platform.Characteristic.SwingMode).iid ?? 'unassigned';
+        const iid = characteristic.iid ?? 'unassigned';
+        this.platform.log.debug(
+            `HAP SET: device=${this.dev.id}, characteristic=${characteristicName}, uuid=${characteristic.UUID}, ` +
+            `iid=${iid}, value=${value}, activeIid=${activeIid}, swingIid=${swingIid}`,
+        );
     }
 
     /**
