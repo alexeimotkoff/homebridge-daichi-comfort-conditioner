@@ -101,6 +101,16 @@ describe('HttpApi', () => {
     await expect(api.getDevices()).resolves.toEqual([nullableDeviceFixture]);
   });
 
+  it('refreshes one device from its current device endpoint', async () => {
+    const client = createClient();
+    const { api } = createApi(client);
+    vi.mocked(client.get).mockResolvedValueOnce({ data: { data: deviceFixture } });
+
+    await expect(api.getDevice(1001)).resolves.toEqual(deviceFixture);
+
+    expect(client.get).toHaveBeenCalledWith('devices/1001', { headers: {} });
+  });
+
   it('posts the exact control payload and returns the requested device', async () => {
     const client = createClient();
     const { api } = createApi(client);

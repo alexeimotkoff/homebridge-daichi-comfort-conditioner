@@ -119,7 +119,8 @@ export class HttpApi {
     return device;
   }
 
-  private async getDevice(id: number): Promise<Device> {
+  /** Get the current complete state of one device. */
+  public async getDevice(id: number): Promise<Device> {
     const response = await this.authorized((config) => this.client.get(`devices/${id}`, config));
     if (!isDeviceEnvelope(response.data)) {
       throw new DaichiApiError(`Invalid device response for ${id}`);

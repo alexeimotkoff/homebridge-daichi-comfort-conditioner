@@ -17,9 +17,11 @@ import { DaichiMqttClient } from './mqttClient';
 import { DaichiComfortPlatformAccessory } from './platformAccessory';
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 
+const DEVICE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
 type DeviceHandler = Pick<DaichiComfortPlatformAccessory, 'updateDeviceState'> &
   Partial<Pick<DaichiComfortPlatformAccessory, 'activate' | 'deactivate'>>;
-type PlatformHttpApi = Pick<HttpApi, 'login' | 'loadMqttUser' | 'getDevices' | 'controlDevice'>;
+type PlatformHttpApi = Pick<HttpApi, 'login' | 'loadMqttUser' | 'getDevices' | 'getDevice' | 'controlDevice'>;
 type DeviceHandlerFactory = (
   platform: DaichiComfortHomebridgePlatform,
   accessory: PlatformAccessory,
@@ -31,6 +33,11 @@ interface PreparedAccessory {
   accessory: PlatformAccessory;
   device: Device;
   isNew: boolean;
+}
+
+interface DeviceRefresh {
+  handler: DeviceHandler;
+  promise: Promise<void>;
 }
 
 type DiscoveryStage = 'login' | 'mqtt credentials' | 'devices' | 'prepare' |
@@ -54,6 +61,8 @@ export class DaichiComfortHomebridgePlatform implements DynamicPlatformPlugin {
   private accessoryHandlers = new Map<number, DeviceHandler>();
   private mqttStarted = false;
   private mqttStopPromise: Promise<void> | null = null;
+  private deviceRefreshTimer: NodeJS.Timeout | null = null;
+  private readonly deviceRefreshes = new Map<number, DeviceRefresh>();
   private shuttingDown = false;
   private lifecycleGeneration = 0;
 
@@ -88,6 +97,7 @@ export class DaichiComfortHomebridgePlatform implements DynamicPlatformPlugin {
     this.api.on(APIEvent.SHUTDOWN, () => {
       this.shuttingDown = true;
       this.lifecycleGeneration++;
+      this.stopDeviceRefresh();
       void this.stopMqtt();
     });
   }
@@ -179,6 +189,7 @@ export class DaichiComfortHomebridgePlatform implements DynamicPlatformPlugin {
       stage = 'cache commit';
       try {
         this.commitDiscovery(preparedAccessories, nextHandlers);
+        this.startDeviceRefresh();
       } catch (error) {
         await this.rollbackActivation(activatedHandlers, undefined, previousHandlers, startedMqtt);
         throw error;
@@ -191,6 +202,57 @@ export class DaichiComfortHomebridgePlatform implements DynamicPlatformPlugin {
       if (this.isDiscoveryActive(generation)) {
         this.log.error(`Device discovery failed: ${stage}`);
       }
+    }
+  }
+
+  /** Refresh one known device without replacing state or functions omitted by the response. */
+  public async refreshDeviceState(deviceId: number): Promise<void> {
+    const handler = this.accessoryHandlers.get(deviceId);
+    if (!handler || this.shuttingDown) {
+      return;
+    }
+
+    const existingRefresh = this.deviceRefreshes.get(deviceId);
+    if (existingRefresh?.handler === handler) {
+      return existingRefresh.promise;
+    }
+
+    const refresh = this.httpApi.getDevice(deviceId)
+      .then((device) => {
+        if (!this.shuttingDown && this.accessoryHandlers.get(deviceId) === handler) {
+          handler.updateDeviceState(device);
+        }
+      })
+      .catch(() => {
+        this.log.warn(`Failed to refresh device: ${deviceId}`);
+      })
+      .finally(() => {
+        if (this.deviceRefreshes.get(deviceId)?.promise === refresh) {
+          this.deviceRefreshes.delete(deviceId);
+        }
+      });
+    this.deviceRefreshes.set(deviceId, { handler, promise: refresh });
+    return refresh;
+  }
+
+  private startDeviceRefresh(): void {
+    this.stopDeviceRefresh();
+    if (this.accessoryHandlers.size === 0 || this.shuttingDown) {
+      return;
+    }
+
+    this.deviceRefreshTimer = setInterval(() => {
+      for (const deviceId of this.accessoryHandlers.keys()) {
+        void this.refreshDeviceState(deviceId);
+      }
+    }, DEVICE_REFRESH_INTERVAL_MS);
+    this.deviceRefreshTimer.unref();
+  }
+
+  private stopDeviceRefresh(): void {
+    if (this.deviceRefreshTimer) {
+      clearInterval(this.deviceRefreshTimer);
+      this.deviceRefreshTimer = null;
     }
   }
 

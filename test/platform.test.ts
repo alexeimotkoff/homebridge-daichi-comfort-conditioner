@@ -50,6 +50,7 @@ function createPlatform(options: {
     getDevices: options.getDevicesError
       ? vi.fn().mockRejectedValue(options.getDevicesError)
       : vi.fn().mockResolvedValue(options.devices ?? [deviceFixture()]),
+    getDevice: vi.fn((id: number) => Promise.resolve(deviceFixture({ id }))),
     controlDevice: vi.fn(),
   };
   const mqttClient = {
@@ -119,6 +120,52 @@ function createPlatform(options: {
 }
 
 describe('DaichiComfortHomebridgePlatform discovery lifecycle', () => {
+  it('refreshes device state every five minutes and stops refreshing on shutdown', async () => {
+    vi.useFakeTimers();
+    try {
+      const subject = createPlatform();
+      await subject.platform.discoverDevices();
+      const refreshedDevice = deviceFixture({ curTemp: 26 });
+      subject.httpApi.getDevice.mockResolvedValueOnce(refreshedDevice);
+
+      await vi.advanceTimersByTimeAsync(300_000);
+
+      expect(subject.httpApi.getDevice).toHaveBeenCalledWith(1001);
+      expect(subject.handlerByDeviceId.get(1001)?.updateDeviceState).toHaveBeenCalledWith(refreshedDevice);
+
+      subject.eventHandlers.get('shutdown')?.();
+      subject.httpApi.getDevice.mockClear();
+      await vi.advanceTimersByTimeAsync(300_000);
+
+      expect(subject.httpApi.getDevice).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('starts a new refresh when discovery replaces a handler during an older refresh', async () => {
+    const subject = createPlatform();
+    await subject.platform.discoverDevices();
+    let resolveOldRefresh: (device: Device) => void = () => undefined;
+    subject.httpApi.getDevice.mockImplementationOnce(() => new Promise<Device>((resolve) => {
+      resolveOldRefresh = resolve;
+    }));
+    const oldRefresh = subject.platform.refreshDeviceState(1001);
+
+    await subject.platform.discoverDevices();
+    const newHandler = subject.handlerByDeviceId.get(1001)!;
+    const refreshedDevice = deviceFixture({ curTemp: 27 });
+    subject.httpApi.getDevice.mockResolvedValueOnce(refreshedDevice);
+    const newRefresh = subject.platform.refreshDeviceState(1001);
+    const getDeviceCallCount = subject.httpApi.getDevice.mock.calls.length;
+
+    resolveOldRefresh(deviceFixture({ curTemp: 23 }));
+    await Promise.all([oldRefresh, newRefresh]);
+
+    expect(getDeviceCallCount).toBe(2);
+    expect(newHandler.updateDeviceState).toHaveBeenCalledWith(refreshedDevice);
+  });
+
   it('reuses a cached accessory without unregistering or registering it', async () => {
     const cached = { UUID: 'uuid:TEST-SERIAL', displayName: 'Old name', context: {} };
     const subject = createPlatform({ cached: [cached] });

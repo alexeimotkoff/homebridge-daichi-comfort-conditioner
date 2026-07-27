@@ -34,6 +34,17 @@ interface FunctionCommand {
     valueRange?: number[];
 }
 
+const LOGGED_CONTROL_MODES = [
+    CtrlMode.IsOn,
+    CtrlMode.SetTemp,
+    CtrlMode.FanFlow,
+    CtrlMode.FanSpeedAuto,
+    CtrlMode.FanSpeed,
+    CtrlMode.AutoMode,
+    CtrlMode.HeatMode,
+    CtrlMode.CoolMode,
+] as const;
+
 export class DaichiComfortPlatformAccessory {
     private service!: Service;
     private state: DevState;
@@ -91,12 +102,14 @@ export class DaichiComfortPlatformAccessory {
             this.service.getCharacteristic(this.platform.Characteristic.Active),
             this.handleActiveGet.bind(this),
             this.handleActiveSet.bind(this),
+            'Active',
         );
 
         this.bindCharacteristic(
             this.service.getCharacteristic(this.platform.Characteristic.TargetHeaterCoolerState),
             this.handleTargetHeaterCoolerStateGet.bind(this),
             this.handleTargetHeaterCoolerStateSet.bind(this),
+            'TargetHeaterCoolerState',
         );
 
         this.bindCharacteristic(
@@ -113,6 +126,7 @@ export class DaichiComfortPlatformAccessory {
             this.service.getCharacteristic(this.platform.Characteristic.CoolingThresholdTemperature),
             this.handleCoolingThresholdTemperatureGet.bind(this),
             this.handleCoolingThresholdTemperatureSet.bind(this),
+            'CoolingThresholdTemperature',
         )
             .setProps({
                 minStep: 1,
@@ -124,6 +138,7 @@ export class DaichiComfortPlatformAccessory {
             this.service.getCharacteristic(this.platform.Characteristic.HeatingThresholdTemperature),
             this.handleCoolingThresholdTemperatureGet.bind(this),
             this.handleCoolingThresholdTemperatureSet.bind(this),
+            'HeatingThresholdTemperature',
         )
             .setProps({
                 minStep: 1,
@@ -135,12 +150,14 @@ export class DaichiComfortPlatformAccessory {
             this.service.getCharacteristic(this.platform.Characteristic.SwingMode),
             this.handleSwingModeGet.bind(this),
             this.handleSwingModeSet.bind(this),
+            'SwingMode',
         );
 
         this.bindCharacteristic(
             this.service.getCharacteristic(this.platform.Characteristic.RotationSpeed),
             this.handleRotationSpeedGet.bind(this),
             this.handleRotationSpeedSet.bind(this),
+            'RotationSpeed',
         )
             .setProps({
                 minStep: this.fanSpeedMinStep,
@@ -169,13 +186,20 @@ export class DaichiComfortPlatformAccessory {
         characteristic: Characteristic,
         getHandler?: GetHandler,
         setHandler?: SetHandler,
+        characteristicName?: string,
     ): Characteristic {
-        this.bindings.push({characteristic, getHandler, setHandler});
+        const loggedSetHandler = setHandler && characteristicName
+            ? async (value: CharacteristicValue): Promise<void> => {
+                this.logHapSet(characteristicName, characteristic, value);
+                await setHandler(value);
+            }
+            : setHandler;
+        this.bindings.push({characteristic, getHandler, setHandler: loggedSetHandler});
         if (getHandler) {
             characteristic.onGet(getHandler);
         }
-        if (setHandler) {
-            characteristic.onSet(setHandler);
+        if (loggedSetHandler) {
+            characteristic.onSet(loggedSetHandler);
         }
         return characteristic;
     }
@@ -225,7 +249,11 @@ export class DaichiComfortPlatformAccessory {
      */
     protected async ctrl(cmd: CtrlMode, val: boolean | number){
         const deviceId = this.dev.id;
-        const functionId = this.functionsDict.get(cmd)?.id;
+        let functionId = this.functionsDict.get(cmd)?.id;
+        if(!functionId){
+            await this.platform.refreshDeviceState(deviceId);
+            functionId = this.functionsDict.get(cmd)?.id;
+        }
         if(!functionId){
             const message = `Unknown functionId for device=${deviceId}, cmd=${CtrlMode[cmd]}`;
             this.platform.log.error(`ctrl: ${message}`);
@@ -258,11 +286,6 @@ export class DaichiComfortPlatformAccessory {
      * Handle requests to set the "Active" characteristic
      */
     async handleActiveSet(value: CharacteristicValue): Promise<void> {
-        this.logHapSet(
-            'Active',
-            this.service.getCharacteristic(this.platform.Characteristic.Active),
-            value,
-        );
         this.platform.log.debug('Triggered SET Active:', value);
         await this.ctrl(CtrlMode.IsOn, !!value);
     }
@@ -351,26 +374,22 @@ export class DaichiComfortPlatformAccessory {
      * Handle requests to set the "Swing Mode" characteristic
      */
     async handleSwingModeSet(value: CharacteristicValue): Promise<void> {
-        this.logHapSet(
-            'SwingMode',
-            this.service.getCharacteristic(this.platform.Characteristic.SwingMode),
-            value,
-        );
         await this.ctrl(CtrlMode.FanFlow, value === this.platform.Characteristic.SwingMode.SWING_ENABLED);
         this.platform.log.debug('Triggered SET SwingMode:', value);
     }
 
     private logHapSet(
-        characteristicName: 'Active' | 'SwingMode',
+        characteristicName: string,
         characteristic: Characteristic,
         value: CharacteristicValue,
     ): void {
-        const activeIid = this.service.getCharacteristic(this.platform.Characteristic.Active).iid ?? 'unassigned';
-        const swingIid = this.service.getCharacteristic(this.platform.Characteristic.SwingMode).iid ?? 'unassigned';
         const iid = characteristic.iid ?? 'unassigned';
+        const functionIds = LOGGED_CONTROL_MODES
+            .map(cmd => `${CtrlMode[cmd]}:${this.functionsDict.get(cmd)?.id ?? 'unknown'}`)
+            .join(', ');
         this.platform.log.debug(
             `HAP SET: device=${this.dev.id}, characteristic=${characteristicName}, uuid=${characteristic.UUID}, ` +
-            `iid=${iid}, value=${value}, activeIid=${activeIid}, swingIid=${swingIid}`,
+            `iid=${iid}, value=${value}, functionIds={${functionIds}}`,
         );
     }
 

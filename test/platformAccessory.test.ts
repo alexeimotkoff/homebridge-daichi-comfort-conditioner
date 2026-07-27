@@ -125,6 +125,7 @@ function createAccessory(
     Characteristic: identifiers,
     log: {debug: vi.fn(), error: vi.fn()},
     getCtrlApi,
+    refreshDeviceState: vi.fn().mockResolvedValue(undefined),
   };
 
   const InactiveAccessory = DaichiComfortPlatformAccessory as unknown as new (
@@ -222,30 +223,39 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
     await expect(active.getHandler!()).resolves.toBe(identifiers.Active.INACTIVE);
   });
 
-  it('logs HAP UUID and IID mappings for Active and SwingMode writes', async () => {
+  it('logs every current function id for HAP writes beyond Active and SwingMode', async () => {
     const {identifiers, characteristics, platform} = createAccessory();
-    const active = characteristics.get(identifiers.Active)!;
-    const swingMode = characteristics.get(identifiers.SwingMode)!;
-    Object.assign(active, {
-      UUID: '000000B0-0000-1000-8000-0026BB765291',
-      iid: 10,
-    });
-    Object.assign(swingMode, {
-      UUID: '000000B6-0000-1000-8000-0026BB765291',
-      iid: 18,
+    const targetState = characteristics.get(identifiers.TargetHeaterCoolerState)!;
+    Object.assign(targetState, {
+      UUID: '000000B2-0000-1000-8000-0026BB765291',
+      iid: 12,
     });
 
-    await active.setHandler!(identifiers.Active.INACTIVE);
-    await swingMode.setHandler!(identifiers.SwingMode.SWING_ENABLED);
+    await targetState.setHandler!(identifiers.TargetHeaterCoolerState.COOL);
 
     expect(platform.log.debug).toHaveBeenCalledWith(
-      'HAP SET: device=1001, characteristic=Active, uuid=000000B0-0000-1000-8000-0026BB765291, ' +
-      'iid=10, value=0, activeIid=10, swingIid=18',
+      'HAP SET: device=1001, characteristic=TargetHeaterCoolerState, ' +
+      'uuid=000000B2-0000-1000-8000-0026BB765291, iid=12, value=2, ' +
+      'functionIds={IsOn:1, SetTemp:2, FanFlow:3, FanSpeedAuto:4, FanSpeed:5, ' +
+      'AutoMode:6, HeatMode:7, CoolMode:8}',
     );
-    expect(platform.log.debug).toHaveBeenCalledWith(
-      'HAP SET: device=1001, characteristic=SwingMode, uuid=000000B6-0000-1000-8000-0026BB765291, ' +
-      'iid=18, value=1, activeIid=10, swingIid=18',
-    );
+  });
+
+  it('refreshes a missing function once and retries the original command', async () => {
+    const fullDevice = deviceFixture();
+    const initialDevice = deviceFixture({pult: [{
+      functions: fullDevice.pult[0].functions.filter(fn => fn.id !== 8),
+    }]});
+    const subject = createAccessory(undefined, {device: initialDevice});
+    subject.platform.refreshDeviceState.mockImplementationOnce(async () => {
+      subject.handler.updateDeviceState(fullDevice);
+    });
+
+    await subject.characteristics.get(subject.identifiers.TargetHeaterCoolerState)!
+      .setHandler!(subject.identifiers.TargetHeaterCoolerState.COOL);
+
+    expect(subject.platform.refreshDeviceState).toHaveBeenCalledWith(1001);
+    expect(subject.controlDevice).toHaveBeenCalledWith(1001, CtrlMode.CoolMode, 8, true);
   });
 
   it('propagates control failures from Active onSet', async () => {
