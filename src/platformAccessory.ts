@@ -269,12 +269,29 @@ export class DaichiComfortPlatformAccessory {
     protected async ctrl(cmd: CtrlMode, val: boolean | number){
         const deviceId = this.dev.id;
         let functionId = this.functionsDict.get(cmd)?.id;
+        let deviceResponse: Device | undefined;
+        let refreshError: unknown;
         if(!functionId){
-            await this.platform.refreshDeviceState(deviceId);
+            this.platform.log.debug(
+                `ctrl: Missing functionId, refreshing device: device=${deviceId}, cmd=${CtrlMode[cmd]}`,
+            );
+            try {
+                deviceResponse = await this.platform.refreshDeviceState(deviceId);
+                if(deviceResponse){
+                    this.updateDeviceState(deviceResponse);
+                }
+            } catch(error) {
+                refreshError = error;
+            }
             functionId = this.functionsDict.get(cmd)?.id;
         }
         if(!functionId){
-            const message = `Unknown functionId for device=${deviceId}, cmd=${CtrlMode[cmd]}`;
+            const responseJson = JSON.stringify(deviceResponse ?? null);
+            const refreshErrorMessage = refreshError === undefined
+                ? ''
+                : `, refreshError=${refreshError instanceof Error ? refreshError.message : 'Unknown error'}`;
+            const message = `Unknown functionId for device=${deviceId}, cmd=${CtrlMode[cmd]}, ` +
+                `deviceResponse=${responseJson}${refreshErrorMessage}`;
             this.platform.log.error(`ctrl: ${message}`);
             throw new Error(message);
         }
@@ -403,17 +420,31 @@ export class DaichiComfortPlatformAccessory {
         value: CharacteristicValue,
     ): void {
         const iid = characteristic.iid ?? 'unassigned';
-        const functionIds = LOGGED_CONTROL_MODES
-            .map(cmd => `${CtrlMode[cmd]}:${this.functionsDict.get(cmd)?.id ?? 'unknown'}`)
-            .join(', ');
-        const characteristicIids = LOGGED_HAP_CHARACTERISTICS
-            .map(name => `${name}:${this.hapCharacteristics.get(name)?.iid ?? 'unassigned'}`)
-            .join(', ');
         this.platform.log.debug(
             `HAP SET: device=${this.dev.id}, characteristic=${characteristicName}, uuid=${characteristic.UUID}, ` +
-            `iid=${iid}, value=${value}, functionIds={${functionIds}}, ` +
-            `characteristicIids={${characteristicIids}}`,
+            `iid=${iid}, value=${value}, functionIds={${this.getLoggedFunctionIds()}}, ` +
+            `characteristicIids={${this.getLoggedCharacteristicIids()}}`,
         );
+    }
+
+    /** Log the complete current cloud-function and HAP-characteristic ID snapshot. */
+    public logHapRefresh(): void {
+        this.platform.log.debug(
+            `HAP REFRESH: device=${this.dev.id}, functionIds={${this.getLoggedFunctionIds()}}, ` +
+            `characteristicIids={${this.getLoggedCharacteristicIids()}}`,
+        );
+    }
+
+    private getLoggedFunctionIds(): string {
+        return LOGGED_CONTROL_MODES
+            .map(cmd => `${CtrlMode[cmd]}:${this.functionsDict.get(cmd)?.id ?? 'unknown'}`)
+            .join(', ');
+    }
+
+    private getLoggedCharacteristicIids(): string {
+        return LOGGED_HAP_CHARACTERISTICS
+            .map(name => `${name}:${this.hapCharacteristics.get(name)?.iid ?? 'unassigned'}`)
+            .join(', ');
     }
 
     /**

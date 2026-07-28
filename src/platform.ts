@@ -20,7 +20,7 @@ import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 const DEVICE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
 type DeviceHandler = Pick<DaichiComfortPlatformAccessory, 'updateDeviceState'> &
-  Partial<Pick<DaichiComfortPlatformAccessory, 'activate' | 'deactivate'>>;
+  Partial<Pick<DaichiComfortPlatformAccessory, 'activate' | 'deactivate' | 'logHapRefresh'>>;
 type PlatformHttpApi = Pick<HttpApi, 'login' | 'loadMqttUser' | 'getDevices' | 'getDevice' | 'controlDevice'>;
 type DeviceHandlerFactory = (
   platform: DaichiComfortHomebridgePlatform,
@@ -37,7 +37,7 @@ interface PreparedAccessory {
 
 interface DeviceRefresh {
   handler: DeviceHandler;
-  promise: Promise<void>;
+  promise: Promise<Device | undefined>;
 }
 
 type DiscoveryStage = 'login' | 'mqtt credentials' | 'devices' | 'prepare' |
@@ -206,7 +206,7 @@ export class DaichiComfortHomebridgePlatform implements DynamicPlatformPlugin {
   }
 
   /** Refresh one known device without replacing state or functions omitted by the response. */
-  public async refreshDeviceState(deviceId: number): Promise<void> {
+  public async refreshDeviceState(deviceId: number): Promise<Device | undefined> {
     const handler = this.accessoryHandlers.get(deviceId);
     if (!handler || this.shuttingDown) {
       return;
@@ -221,10 +221,9 @@ export class DaichiComfortHomebridgePlatform implements DynamicPlatformPlugin {
       .then((device) => {
         if (!this.shuttingDown && this.accessoryHandlers.get(deviceId) === handler) {
           handler.updateDeviceState(device);
+          handler.logHapRefresh?.();
         }
-      })
-      .catch(() => {
-        this.log.warn(`Failed to refresh device: ${deviceId}`);
+        return device;
       })
       .finally(() => {
         if (this.deviceRefreshes.get(deviceId)?.promise === refresh) {
@@ -243,7 +242,10 @@ export class DaichiComfortHomebridgePlatform implements DynamicPlatformPlugin {
 
     this.deviceRefreshTimer = setInterval(() => {
       for (const deviceId of this.accessoryHandlers.keys()) {
-        void this.refreshDeviceState(deviceId);
+        void this.refreshDeviceState(deviceId).catch((error) => {
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          this.log.warn(`Failed to refresh device: ${deviceId}: ${message}`);
+        });
       }
     }, DEVICE_REFRESH_INTERVAL_MS);
     this.deviceRefreshTimer.unref();

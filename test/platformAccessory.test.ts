@@ -251,15 +251,36 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
     );
   });
 
+  it('logs current function and characteristic ids after a device refresh', () => {
+    const {identifiers, characteristics, handler, platform} = createAccessory();
+    Object.assign(characteristics.get(identifiers.Active)!, {iid: 10});
+    Object.assign(characteristics.get(identifiers.CurrentHeaterCoolerState)!, {iid: 11});
+    Object.assign(characteristics.get(identifiers.TargetHeaterCoolerState)!, {iid: 12});
+    Object.assign(characteristics.get(identifiers.CurrentTemperature)!, {iid: 13});
+    Object.assign(characteristics.get(identifiers.CoolingThresholdTemperature)!, {iid: 14});
+    Object.assign(characteristics.get(identifiers.HeatingThresholdTemperature)!, {iid: 15});
+    Object.assign(characteristics.get(identifiers.SwingMode)!, {iid: 16});
+    Object.assign(characteristics.get(identifiers.RotationSpeed)!, {iid: 17});
+
+    handler.logHapRefresh();
+
+    expect(platform.log.debug).toHaveBeenCalledWith(
+      'HAP REFRESH: device=1001, ' +
+      'functionIds={IsOn:1, SetTemp:2, FanFlow:3, FanSpeedAuto:4, FanSpeed:5, ' +
+      'AutoMode:6, HeatMode:7, CoolMode:8}, ' +
+      'characteristicIids={Active:10, TargetHeaterCoolerState:12, CurrentHeaterCoolerState:11, ' +
+      'CurrentTemperature:13, CoolingThresholdTemperature:14, HeatingThresholdTemperature:15, ' +
+      'SwingMode:16, RotationSpeed:17}',
+    );
+  });
+
   it('refreshes a missing function once and retries the original command', async () => {
     const fullDevice = deviceFixture();
     const initialDevice = deviceFixture({pult: [{
       functions: fullDevice.pult[0].functions.filter(fn => fn.id !== 8),
     }]});
     const subject = createAccessory(undefined, {device: initialDevice});
-    subject.platform.refreshDeviceState.mockImplementationOnce(async () => {
-      subject.handler.updateDeviceState(fullDevice);
-    });
+    subject.platform.refreshDeviceState.mockResolvedValueOnce(fullDevice);
 
     await subject.characteristics.get(subject.identifiers.TargetHeaterCoolerState)!
       .setHandler!(subject.identifiers.TargetHeaterCoolerState.COOL);
@@ -280,11 +301,13 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
       functions: deviceFixture().pult[0].functions.filter(fn => fn.id !== 1),
     }]});
     const {identifiers, characteristics, controlDevice, platform} = createAccessory(undefined, {device});
+    platform.refreshDeviceState.mockResolvedValueOnce(device);
+    const message = `Unknown functionId for device=1001, cmd=IsOn, deviceResponse=${JSON.stringify(device)}`;
 
     await expect(characteristics.get(identifiers.Active)!.setHandler!(identifiers.Active.INACTIVE))
-      .rejects.toThrow('Unknown functionId for device=1001, cmd=IsOn');
+      .rejects.toThrow(message);
     expect(controlDevice).not.toHaveBeenCalled();
-    expect(platform.log.error).toHaveBeenCalledWith('ctrl: Unknown functionId for device=1001, cmd=IsOn');
+    expect(platform.log.error).toHaveBeenCalledWith(`ctrl: ${message}`);
   });
 
   it('uses Promise handlers for RotationSpeed', async () => {

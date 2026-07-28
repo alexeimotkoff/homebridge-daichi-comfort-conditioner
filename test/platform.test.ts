@@ -39,7 +39,10 @@ function createPlatform(options: {
   const registered: unknown[][] = [];
   const unregistered: unknown[][] = [];
   const createdAccessories: Array<{ UUID: string; displayName: string; context: Record<string, unknown> }> = [];
-  const handlerByDeviceId = new Map<number, { updateDeviceState: ReturnType<typeof vi.fn> }>();
+  const handlerByDeviceId = new Map<number, {
+    updateDeviceState: ReturnType<typeof vi.fn>;
+    logHapRefresh: ReturnType<typeof vi.fn>;
+  }>();
   let mqttHandler: ((device: Device) => void) | undefined;
 
   const httpApi = {
@@ -66,7 +69,10 @@ function createPlatform(options: {
     httpApi,
     mqttClient,
     createAccessoryHandler: vi.fn(options.createAccessoryHandler ?? ((_platform: unknown, _accessory: unknown, device: Device) => {
-      const handler = { updateDeviceState: vi.fn() };
+      const handler = {
+        updateDeviceState: vi.fn(),
+        logHapRefresh: vi.fn(),
+      };
       handlerByDeviceId.set(device.id, handler);
       return handler;
     })),
@@ -132,6 +138,7 @@ describe('DaichiComfortHomebridgePlatform discovery lifecycle', () => {
 
       expect(subject.httpApi.getDevice).toHaveBeenCalledWith(1001);
       expect(subject.handlerByDeviceId.get(1001)?.updateDeviceState).toHaveBeenCalledWith(refreshedDevice);
+      expect(subject.handlerByDeviceId.get(1001)?.logHapRefresh).toHaveBeenCalledOnce();
 
       subject.eventHandlers.get('shutdown')?.();
       subject.httpApi.getDevice.mockClear();
@@ -160,10 +167,11 @@ describe('DaichiComfortHomebridgePlatform discovery lifecycle', () => {
     const getDeviceCallCount = subject.httpApi.getDevice.mock.calls.length;
 
     resolveOldRefresh(deviceFixture({ curTemp: 23 }));
-    await Promise.all([oldRefresh, newRefresh]);
+    const [, newRefreshResult] = await Promise.all([oldRefresh, newRefresh]);
 
     expect(getDeviceCallCount).toBe(2);
     expect(newHandler.updateDeviceState).toHaveBeenCalledWith(refreshedDevice);
+    expect(newRefreshResult).toEqual(refreshedDevice);
   });
 
   it('reuses a cached accessory without unregistering or registering it', async () => {
