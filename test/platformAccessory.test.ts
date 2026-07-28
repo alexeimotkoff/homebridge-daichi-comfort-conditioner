@@ -226,10 +226,17 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
   it('logs every current function id for HAP writes beyond Active and SwingMode', async () => {
     const {identifiers, characteristics, platform} = createAccessory();
     const targetState = characteristics.get(identifiers.TargetHeaterCoolerState)!;
+    Object.assign(characteristics.get(identifiers.Active)!, {iid: 10});
+    Object.assign(characteristics.get(identifiers.CurrentHeaterCoolerState)!, {iid: 11});
     Object.assign(targetState, {
       UUID: '000000B2-0000-1000-8000-0026BB765291',
       iid: 12,
     });
+    Object.assign(characteristics.get(identifiers.CurrentTemperature)!, {iid: 13});
+    Object.assign(characteristics.get(identifiers.CoolingThresholdTemperature)!, {iid: 14});
+    Object.assign(characteristics.get(identifiers.HeatingThresholdTemperature)!, {iid: 15});
+    Object.assign(characteristics.get(identifiers.SwingMode)!, {iid: 16});
+    Object.assign(characteristics.get(identifiers.RotationSpeed)!, {iid: 17});
 
     await targetState.setHandler!(identifiers.TargetHeaterCoolerState.COOL);
 
@@ -237,7 +244,10 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
       'HAP SET: device=1001, characteristic=TargetHeaterCoolerState, ' +
       'uuid=000000B2-0000-1000-8000-0026BB765291, iid=12, value=2, ' +
       'functionIds={IsOn:1, SetTemp:2, FanFlow:3, FanSpeedAuto:4, FanSpeed:5, ' +
-      'AutoMode:6, HeatMode:7, CoolMode:8}',
+      'AutoMode:6, HeatMode:7, CoolMode:8}, ' +
+      'characteristicIids={Active:10, TargetHeaterCoolerState:12, CurrentHeaterCoolerState:11, ' +
+      'CurrentTemperature:13, CoolingThresholdTemperature:14, HeatingThresholdTemperature:15, ' +
+      'SwingMode:16, RotationSpeed:17}',
     );
   });
 

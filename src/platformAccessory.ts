@@ -45,10 +45,22 @@ const LOGGED_CONTROL_MODES = [
     CtrlMode.CoolMode,
 ] as const;
 
+const LOGGED_HAP_CHARACTERISTICS = [
+    'Active',
+    'TargetHeaterCoolerState',
+    'CurrentHeaterCoolerState',
+    'CurrentTemperature',
+    'CoolingThresholdTemperature',
+    'HeatingThresholdTemperature',
+    'SwingMode',
+    'RotationSpeed',
+] as const;
+
 export class DaichiComfortPlatformAccessory {
     private service!: Service;
     private state: DevState;
     private functionsDict = new Map<CtrlMode, FunctionCommand>();
+    private readonly hapCharacteristics = new Map<string, Characteristic>();
     private fanSpeedMinStep: number = 1;
     private activated = false;
     private createdService = false;
@@ -115,11 +127,15 @@ export class DaichiComfortPlatformAccessory {
         this.bindCharacteristic(
             this.service.getCharacteristic(this.platform.Characteristic.CurrentHeaterCoolerState),
             this.handleCurrentHeaterCoolerStateGet.bind(this),
+            undefined,
+            'CurrentHeaterCoolerState',
         );
 
         this.bindCharacteristic(
             this.service.getCharacteristic(this.platform.Characteristic.CurrentTemperature),
             this.handleCurrentTemperatureGet.bind(this),
+            undefined,
+            'CurrentTemperature',
         );
 
         this.bindCharacteristic(
@@ -188,6 +204,9 @@ export class DaichiComfortPlatformAccessory {
         setHandler?: SetHandler,
         characteristicName?: string,
     ): Characteristic {
+        if (characteristicName) {
+            this.hapCharacteristics.set(characteristicName, characteristic);
+        }
         const loggedSetHandler = setHandler && characteristicName
             ? async (value: CharacteristicValue): Promise<void> => {
                 this.logHapSet(characteristicName, characteristic, value);
@@ -387,9 +406,13 @@ export class DaichiComfortPlatformAccessory {
         const functionIds = LOGGED_CONTROL_MODES
             .map(cmd => `${CtrlMode[cmd]}:${this.functionsDict.get(cmd)?.id ?? 'unknown'}`)
             .join(', ');
+        const characteristicIids = LOGGED_HAP_CHARACTERISTICS
+            .map(name => `${name}:${this.hapCharacteristics.get(name)?.iid ?? 'unassigned'}`)
+            .join(', ');
         this.platform.log.debug(
             `HAP SET: device=${this.dev.id}, characteristic=${characteristicName}, uuid=${characteristic.UUID}, ` +
-            `iid=${iid}, value=${value}, functionIds={${functionIds}}`,
+            `iid=${iid}, value=${value}, functionIds={${functionIds}}, ` +
+            `characteristicIids={${characteristicIids}}`,
         );
     }
 
