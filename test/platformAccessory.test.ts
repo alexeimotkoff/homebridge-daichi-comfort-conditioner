@@ -270,7 +270,12 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
       'AutoMode:6, HeatMode:7, CoolMode:8}, ' +
       'characteristicIids={Active:10, TargetHeaterCoolerState:12, CurrentHeaterCoolerState:11, ' +
       'CurrentTemperature:13, CoolingThresholdTemperature:14, HeatingThresholdTemperature:15, ' +
-      'SwingMode:16, RotationSpeed:17}',
+      'SwingMode:16, RotationSpeed:17}, ' +
+      'characteristicValues={Active:1, TargetHeaterCoolerState:0, CurrentHeaterCoolerState:1, ' +
+      'CurrentTemperature:22, CoolingThresholdTemperature:22, HeatingThresholdTemperature:22, ' +
+      'SwingMode:0, RotationSpeed:40}, ' +
+      'state={powerState:true, curTemp:22, setTemp:22, mode:auto, fanSpeed:2, ' +
+      'autoFanSpeedIsOn:false, swingMode:false}',
     );
   });
 
@@ -356,6 +361,177 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
     });
 
     await expect(characteristics.get(identifiers.RotationSpeed)!.getHandler!()).resolves.toBe(20);
+  });
+
+  it('uses Auto state only from the linked function of the selected Fan speed', async () => {
+    const controlDevice = vi.fn().mockResolvedValue(deviceFixture());
+    const {handler, identifiers, characteristics} = createAccessory(controlDevice);
+
+    handler.updateDeviceState({
+      id: 1001,
+      pult: [{
+        functions: [
+          functionFixture(999, 'fanSpeed', {
+            title: 'Auto',
+            state: {isOn: true},
+            metaData: {bleTagInfo: {bleTag: 'fanSpeed', bleOnCommand: '0'}},
+          }),
+          functionFixture(358, 'fanSpeed', {
+            title: 'Fan speed',
+            state: {isOn: true, value: 1, valueRange: [1, 5]},
+            linkedFunction: functionFixture(357, 'fanSpeed', {
+              title: 'Auto',
+              state: {isOn: false},
+              metaData: {bleTagInfo: {bleTag: 'fanSpeed', bleOnCommand: '0'}},
+            }),
+          }),
+        ],
+      }],
+    });
+
+    await expect(characteristics.get(identifiers.RotationSpeed)!.getHandler!()).resolves.toBe(20);
+    await expect(characteristics.get(identifiers.RotationSpeed)!.setHandler!(0)).resolves.toBeUndefined();
+    expect(controlDevice).toHaveBeenCalledWith(1001, CtrlMode.FanSpeedAuto, 357, true);
+  });
+
+  it.each([
+    {label: 'below the range', isOn: true, value: 0},
+    {label: 'above the range', isOn: true, value: 6},
+    {label: 'not an integer step', isOn: true, value: 1.5},
+    {label: 'reported by an inactive manual function', isOn: false, value: 1},
+  ])('keeps the known manual fan speed when a new value is $label', async ({isOn, value}) => {
+    const {handler, identifiers, characteristics} = createAccessory();
+
+    handler.updateDeviceState({
+      id: 1001,
+      pult: [{
+        functions: [
+          functionFixture(358, 'fanSpeed', {
+            title: 'Fan speed',
+            state: {isOn, value, valueRange: [1, 5]},
+            linkedFunction: functionFixture(357, 'fanSpeed', {
+              title: 'Auto',
+              state: {isOn: false},
+              metaData: {bleTagInfo: {bleTag: 'fanSpeed', bleOnCommand: '0'}},
+            }),
+          }),
+        ],
+      }],
+    });
+
+    await expect(characteristics.get(identifiers.RotationSpeed)!.getHandler!()).resolves.toBe(40);
+  });
+
+  it('reports Auto fan speed only when the selected Fan speed linked function is active', async () => {
+    const {handler, identifiers, characteristics} = createAccessory();
+
+    handler.updateDeviceState({
+      id: 1001,
+      pult: [{
+        functions: [
+          functionFixture(358, 'fanSpeed', {
+            title: 'Fan speed',
+            state: {isOn: false, value: 1, valueRange: [1, 5]},
+            linkedFunction: functionFixture(357, 'fanSpeed', {
+              title: 'Auto',
+              state: {isOn: true},
+              metaData: {bleTagInfo: {bleTag: 'fanSpeed', bleOnCommand: '0'}},
+            }),
+          }),
+        ],
+      }],
+    });
+
+    await expect(characteristics.get(identifiers.RotationSpeed)!.getHandler!()).resolves.toBe(0);
+  });
+
+  it('keeps known characteristic state when an update contains unusable values', async () => {
+    const {handler, identifiers, characteristics} = createAccessory(undefined, {
+      device: deviceFixture({curTemp: 25, state: {isOn: false}}),
+    });
+
+    handler.updateDeviceState({
+      id: 1001,
+      curTemp: null,
+      state: {isOn: null},
+      pult: [{
+        functions: [
+          {
+            id: 2,
+            state: {isOn: true, value: null},
+            metaData: {bleTagInfo: {bleTag: 'setTemp'}},
+          },
+          {
+            id: 3,
+            title: 'Vertical swing',
+            state: {isOn: null},
+            metaData: {bleTagInfo: {bleTag: 'flow', bleOnCommand: 'vert_on'}},
+          },
+          {
+            id: 4,
+            title: 'Auto',
+            state: {isOn: null},
+            metaData: {bleTagInfo: {bleTag: 'fanSpeed', bleOnCommand: '0'}},
+          },
+          {
+            id: 5,
+            title: 'Fan speed',
+            state: {isOn: null, value: null},
+            metaData: {bleTagInfo: {bleTag: 'fanSpeed'}},
+          },
+        ],
+      }],
+    } as never);
+
+    handler.updateDeviceState({
+      id: 1001,
+      curTemp: 'invalid',
+      state: {isOn: 'invalid'},
+      pult: [{
+        functions: [
+          {
+            id: 2,
+            state: {isOn: true, value: 'invalid'},
+            metaData: {bleTagInfo: {bleTag: 'setTemp'}},
+          },
+          {
+            id: 3,
+            title: 'Vertical swing',
+            state: {isOn: 'invalid'},
+            metaData: {bleTagInfo: {bleTag: 'flow', bleOnCommand: 'vert_on'}},
+          },
+          {
+            id: 4,
+            title: 'Auto',
+            state: {isOn: 'invalid'},
+            metaData: {bleTagInfo: {bleTag: 'fanSpeed', bleOnCommand: '0'}},
+          },
+          {
+            id: 5,
+            title: 'Fan speed',
+            state: {isOn: 'invalid', value: 'invalid', valueRange: 'invalid'},
+            metaData: {bleTagInfo: {bleTag: 'fanSpeed'}},
+          },
+          {
+            id: 6,
+            state: {isOn: 'invalid'},
+            metaData: {bleTagInfo: {bleTag: 'mode', bleOnCommand: 'auto'}},
+          },
+        ],
+      }],
+    } as never);
+
+    await expect(characteristics.get(identifiers.Active)!.getHandler!())
+      .resolves.toBe(identifiers.Active.INACTIVE);
+    await expect(characteristics.get(identifiers.CurrentTemperature)!.getHandler!()).resolves.toBe(25);
+    await expect(characteristics.get(identifiers.CoolingThresholdTemperature)!.getHandler!()).resolves.toBe(22);
+    await expect(characteristics.get(identifiers.SwingMode)!.getHandler!()).resolves.toBe(0);
+
+    handler.updateDeviceState({id: 1001, state: {isOn: true}});
+
+    await expect(characteristics.get(identifiers.TargetHeaterCoolerState)!.getHandler!())
+      .resolves.toBe(identifiers.TargetHeaterCoolerState.AUTO);
+    await expect(characteristics.get(identifiers.RotationSpeed)!.getHandler!()).resolves.toBe(40);
   });
 
   it('updates CurrentTemperature from a partial MQTT update while powered off', () => {

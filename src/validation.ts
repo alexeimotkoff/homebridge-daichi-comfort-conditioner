@@ -140,7 +140,10 @@ function normalizeMqttFunctions(value: unknown): PultFunctionUpdate[] {
     }
 
     for (const pultFunction of pult.functions) {
-      functions.push(...normalizeMqttFunction(pultFunction));
+      const normalized = normalizeMqttFunction(pultFunction);
+      if (normalized) {
+        functions.push(normalized);
+      }
     }
   }
 
@@ -151,14 +154,14 @@ function normalizeMqttFunction(
   value: unknown,
   ancestors: ReadonlySet<Record<string, unknown>> = new Set(),
   depth = 0,
-): PultFunctionUpdate[] {
+): PultFunctionUpdate | null {
   if (!isRecord(value) || depth > 16 || ancestors.has(value)) {
-    return [];
+    return null;
   }
 
   const nextAncestors = new Set(ancestors);
   nextAncestors.add(value);
-  const linkedFunctions = normalizeMqttFunction(value.linkedFunction, nextAncestors, depth + 1);
+  const linkedFunction = normalizeMqttFunction(value.linkedFunction, nextAncestors, depth + 1);
 
   const bleTag = isRecord(value.metaData) &&
     isRecord(value.metaData.bleTagInfo) &&
@@ -170,7 +173,7 @@ function normalizeMqttFunction(
     !isRecord(value.metaData.bleTagInfo) ||
     bleTag === null ||
     !MQTT_FUNCTION_TAGS.has(bleTag)) {
-    return linkedFunctions;
+    return linkedFunction;
   }
 
   const bleTagInfo = value.metaData.bleTagInfo;
@@ -209,7 +212,11 @@ function normalizeMqttFunction(
     }
   }
 
-  return [normalized, ...linkedFunctions];
+  if (linkedFunction) {
+    normalized.linkedFunction = linkedFunction;
+  }
+
+  return normalized;
 }
 
 function isPult(value: unknown): value is Pult {

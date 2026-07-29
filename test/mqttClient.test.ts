@@ -197,6 +197,51 @@ describe('DaichiMqttClient', () => {
     expect(onDeviceUpdate).toHaveBeenCalledWith({ id: 1001, curTemp: 26 });
   });
 
+  it('preserves the linked Auto function of Fan speed in an MQTT update', () => {
+    const { client, mqtt } = createClient();
+    const onDeviceUpdate = vi.fn();
+    const message = {
+      devices: [{
+        id: 1001,
+        pult: [{
+          functions: [{
+            id: 358,
+            title: 'Fan speed',
+            state: {isOn: true, value: 1, valueRange: [1, 5]},
+            metaData: {bleTagInfo: {bleTag: 'fanSpeed'}},
+            linkedFunction: {
+              id: 357,
+              title: 'Auto',
+              state: {isOn: false, value: null},
+              metaData: {bleTagInfo: {bleTag: 'fanSpeed', bleOnCommand: '0'}},
+            },
+          }],
+        }],
+      }],
+    };
+
+    mqtt.start(user, onDeviceUpdate);
+    client.emit('message', 'user/7/notification', Buffer.from(JSON.stringify(message)));
+
+    expect(onDeviceUpdate).toHaveBeenCalledWith({
+      id: 1001,
+      pult: [{
+        functions: [{
+          id: 358,
+          title: 'Fan speed',
+          state: {isOn: true, value: 1, valueRange: [1, 5]},
+          metaData: {bleTagInfo: {bleTag: 'fanSpeed'}},
+          linkedFunction: {
+            id: 357,
+            title: 'Auto',
+            state: {isOn: false},
+            metaData: {bleTagInfo: {bleTag: 'fanSpeed', bleOnCommand: '0'}},
+          },
+        }],
+      }],
+    });
+  });
+
   it('dispatches only useful fields from devices and pult entries independently', () => {
     const { client, mqtt } = createClient();
     const onDeviceUpdate = vi.fn();

@@ -56,6 +56,36 @@ const LOGGED_HAP_CHARACTERISTICS = [
     'RotationSpeed',
 ] as const;
 
+const SUPPORTED_MODES = new Set(['auto', 'heat', 'cool']);
+
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isFiniteNumberArray(value: unknown): value is number[] {
+    return Array.isArray(value) && value.length > 0 && value.every(isFiniteNumber);
+}
+
+function isIntegerInRange(value: unknown, valueRange: unknown): value is number {
+    if(!isFiniteNumber(value) || !Number.isInteger(value) || !isFiniteNumberArray(valueRange)){
+        return false;
+    }
+
+    return value >= Math.min(...valueRange) && value <= Math.max(...valueRange);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+    return isFiniteNumber(value) && Number.isInteger(value) && value > 0;
+}
+
+function isBoolean(value: unknown): value is boolean {
+    return typeof value === 'boolean';
+}
+
+function isSupportedMode(value: unknown): value is string {
+    return typeof value === 'string' && SUPPORTED_MODES.has(value);
+}
+
 export class DaichiComfortPlatformAccessory {
     private service!: Service;
     private state: DevState;
@@ -431,7 +461,9 @@ export class DaichiComfortPlatformAccessory {
     public logHapRefresh(): void {
         this.platform.log.debug(
             `HAP REFRESH: device=${this.dev.id}, functionIds={${this.getLoggedFunctionIds()}}, ` +
-            `characteristicIids={${this.getLoggedCharacteristicIids()}}`,
+            `characteristicIids={${this.getLoggedCharacteristicIids()}}, ` +
+            `characteristicValues={${this.getLoggedCharacteristicValues()}}, ` +
+            `state={${this.getLoggedState()}}`,
         );
     }
 
@@ -445,6 +477,42 @@ export class DaichiComfortPlatformAccessory {
         return LOGGED_HAP_CHARACTERISTICS
             .map(name => `${name}:${this.hapCharacteristics.get(name)?.iid ?? 'unassigned'}`)
             .join(', ');
+    }
+
+    private getLoggedCharacteristicValues(): string {
+        return [
+            `Active:${this.getStateActive(this.state.powerState)}`,
+            `TargetHeaterCoolerState:${this.getStateTargetHeaterCoolerState(this.state.mode)}`,
+            'CurrentHeaterCoolerState:' +
+                this.getStateCurrentHeaterCoolerState(
+                    this.state.powerState,
+                    this.state.curTemp,
+                    this.state.setTemp,
+                    this.state.mode,
+                ),
+            `CurrentTemperature:${this.getStateCurrentTemperature(this.state.curTemp)}`,
+            `CoolingThresholdTemperature:${this.getStateCoolingThresholdTemperature(this.state.setTemp)}`,
+            `HeatingThresholdTemperature:${this.getStateCoolingThresholdTemperature(this.state.setTemp)}`,
+            `SwingMode:${this.getStateSwingMode(this.state.swingMode)}`,
+            'RotationSpeed:' +
+                this.getStateRotationSpeed(
+                    this.state.powerState,
+                    this.state.autoFanSpeedIsOn,
+                    this.state.fanSpeed,
+                ),
+        ].join(', ');
+    }
+
+    private getLoggedState(): string {
+        return [
+            `powerState:${this.state.powerState}`,
+            `curTemp:${this.state.curTemp}`,
+            `setTemp:${this.state.setTemp}`,
+            `mode:${this.state.mode}`,
+            `fanSpeed:${this.state.fanSpeed}`,
+            `autoFanSpeedIsOn:${this.state.autoFanSpeedIsOn}`,
+            `swingMode:${this.state.swingMode}`,
+        ].join(', ');
     }
 
     /**
@@ -486,27 +554,45 @@ export class DaichiComfortPlatformAccessory {
 
         const funcDict = DaichiComfortPlatformAccessory.getFunctionsDict(device);
 
-        this.state.curTemp = device.curTemp ?? this.state.curTemp;
-        this.state.powerState = device.state?.isOn ?? this.state.powerState;
+        if(isFiniteNumber(device.curTemp)){
+            this.state.curTemp = device.curTemp;
+        }
+        if(isBoolean(device.state?.isOn)){
+            this.state.powerState = device.state.isOn;
+        }
 
         if(funcDict){
             const setTempFunc = funcDict.get(CtrlMode.SetTemp)?.state?.value;
-            const fanSpeedFunc = funcDict.get(CtrlMode.FanSpeed)?.state?.value;
-            const manualFanSpeedIsOnFunc = funcDict.get(CtrlMode.FanSpeed)?.state?.isOn;
-            const autoFanSpeedIsOnFunc = funcDict.get(CtrlMode.FanSpeedAuto)?.state?.isOn;
+            const fanSpeedFunction = DaichiComfortPlatformAccessory.getFanSpeedFunction(device);
+            const fanSpeedFunc = fanSpeedFunction?.state?.value;
+            const manualFanSpeedIsOnFunc = fanSpeedFunction?.state?.isOn;
+            const autoFanSpeedIsOnFunc = fanSpeedFunction?.linkedFunction?.state?.isOn;
+            const fanSpeedValueRange = isFiniteNumberArray(fanSpeedFunction?.state?.valueRange)
+                ? fanSpeedFunction.state.valueRange
+                : this.functionsDict.get(CtrlMode.FanSpeed)?.valueRange;
+            const isValidManualFanSpeed = manualFanSpeedIsOnFunc === true &&
+                isIntegerInRange(fanSpeedFunc, fanSpeedValueRange);
             const modeFunc = [funcDict.get(CtrlMode.AutoMode)!, funcDict.get(CtrlMode.HeatMode)!, funcDict.get(CtrlMode.CoolMode)!]
                 .find(x => x?.state?.isOn === true)?.metaData?.bleTagInfo?.bleOnCommand;
             const swingModeFunc = funcDict.get(CtrlMode.FanFlow)?.state?.isOn;
 
-            this.state.setTemp = setTempFunc ?? this.state.setTemp;
-            this.state.fanSpeed = fanSpeedFunc ?? this.state.fanSpeed;
-            if(autoFanSpeedIsOnFunc !== undefined){
+            if(isFiniteNumber(setTempFunc)){
+                this.state.setTemp = setTempFunc;
+            }
+            if(isValidManualFanSpeed){
+                this.state.fanSpeed = fanSpeedFunc;
+            }
+            if(isBoolean(autoFanSpeedIsOnFunc)){
                 this.state.autoFanSpeedIsOn = autoFanSpeedIsOnFunc;
-            } else if(manualFanSpeedIsOnFunc === true){
+            } else if(isValidManualFanSpeed){
                 this.state.autoFanSpeedIsOn = false;
             }
-            this.state.mode = modeFunc ?? this.state.mode;
-            this.state.swingMode = swingModeFunc ?? this.state.swingMode;
+            if(isSupportedMode(modeFunc)){
+                this.state.mode = modeFunc;
+            }
+            if(isBoolean(swingModeFunc)){
+                this.state.swingMode = swingModeFunc;
+            }
         }
     }
 
@@ -665,15 +751,24 @@ export class DaichiComfortPlatformAccessory {
         if(result){
             result.forEach((value, key) => {
                 const current = this.functionsDict.get(key);
-                const receivedValueRange = value.state?.valueRange;
+                const receivedId = isPositiveInteger(value.id) ? value.id : current?.id;
+                if(receivedId === undefined){
+                    return;
+                }
+                const candidateValueRange: unknown = value.state?.valueRange;
+                const receivedValueRange = isFiniteNumberArray(candidateValueRange) &&
+                    (key !== CtrlMode.FanSpeed ||
+                        Math.floor(100 / Math.max(...candidateValueRange)) > 0)
+                    ? candidateValueRange
+                    : undefined;
                 const valueRange = receivedValueRange ?? current?.valueRange;
                 const valueRangeChanged = receivedValueRange !== undefined &&
                     (current?.valueRange?.length !== receivedValueRange.length ||
                     receivedValueRange.some((item, index) => current?.valueRange?.[index] !== item));
 
-                if(!current || current.id !== value.id || valueRangeChanged){
+                if(!current || current.id !== receivedId || valueRangeChanged){
                     this.functionsDict.set(key, {
-                        id: value.id,
+                        id: receivedId,
                         ...(valueRange !== undefined ? {valueRange: [...valueRange]} : {}),
                     });
                 }
@@ -690,6 +785,7 @@ export class DaichiComfortPlatformAccessory {
     static getFunctionsDict(device: DeviceUpdate) : Map<CtrlMode, PultFunctionUpdate> | null{
         const funcDict = new Map<CtrlMode, PultFunctionUpdate | null>();
         const functions = DaichiComfortPlatformAccessory.getFunctions(device);
+        const fanSpeedFunction = DaichiComfortPlatformAccessory.getFanSpeedFunction(device);
 
         if(functions.length === 0){
             return null;
@@ -698,8 +794,12 @@ export class DaichiComfortPlatformAccessory {
         funcDict.set(CtrlMode.IsOn, DaichiComfortPlatformAccessory.searchFunction('power', functions));
         funcDict.set(CtrlMode.SetTemp, DaichiComfortPlatformAccessory.searchFunction('setTemp', functions));
         funcDict.set(CtrlMode.FanFlow, DaichiComfortPlatformAccessory.searchFunction('flow', functions, undefined, 'vert_on'));
-        funcDict.set(CtrlMode.FanSpeedAuto, DaichiComfortPlatformAccessory.searchFunction('fanSpeed', functions, 'Auto', '0'));
-        funcDict.set(CtrlMode.FanSpeed, DaichiComfortPlatformAccessory.searchFunction('fanSpeed', functions, 'Fan speed'));
+        funcDict.set(
+            CtrlMode.FanSpeedAuto,
+            fanSpeedFunction?.linkedFunction ??
+                DaichiComfortPlatformAccessory.searchFunction('fanSpeed', functions, 'Auto', '0'),
+        );
+        funcDict.set(CtrlMode.FanSpeed, fanSpeedFunction);
         funcDict.set(CtrlMode.AutoMode, DaichiComfortPlatformAccessory.searchFunction('mode', functions, undefined, 'auto'));
         funcDict.set(CtrlMode.HeatMode, DaichiComfortPlatformAccessory.searchFunction('mode', functions, 'Heat', 'heat'));
         funcDict.set(CtrlMode.CoolMode, DaichiComfortPlatformAccessory.searchFunction('mode', functions, 'Cool', 'cool'));
@@ -737,8 +837,20 @@ export class DaichiComfortPlatformAccessory {
      * @device Device
      */
     static getFunctions(device: DeviceUpdate) : PultFunctionUpdate[]{
-        return device?.pult?.filter(x => (x?.functions))
-            .flatMap(x => x.functions)
+        return DaichiComfortPlatformAccessory.getDirectFunctions(device)
             .flatMap(fn => (fn.linkedFunction) ? [fn, fn.linkedFunction] : fn) ?? [] as PultFunctionUpdate[];
+    }
+
+    private static getDirectFunctions(device: DeviceUpdate): PultFunctionUpdate[] {
+        return device?.pult?.filter(x => x?.functions)
+            .flatMap(x => x.functions) ?? [];
+    }
+
+    private static getFanSpeedFunction(device: DeviceUpdate): PultFunctionUpdate | null {
+        return DaichiComfortPlatformAccessory.searchFunction(
+            'fanSpeed',
+            DaichiComfortPlatformAccessory.getDirectFunctions(device),
+            'Fan speed',
+        );
     }
 }
