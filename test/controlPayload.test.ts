@@ -11,6 +11,14 @@ describe('buildControlPayload', () => {
     expect(buildControlPayload(CtrlMode.IsOn, 350, isOn, 42)).toEqual(expected);
   });
 
+  it.each([true, false])('builds the exact Turbo payload for %s', (isOn) => {
+    expect(buildControlPayload(CtrlMode.Turbo, 364, isOn, 42)).toEqual({
+      cmdId: 42,
+      value: {functionId: 364, isOn, parameters: null},
+      conflictResolveData: null,
+    });
+  });
+
   it.each([
     [CtrlMode.SetTemp, 24],
     [CtrlMode.FanSpeed, 60],

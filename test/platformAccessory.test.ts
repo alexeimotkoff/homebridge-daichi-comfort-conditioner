@@ -72,11 +72,24 @@ function deviceFixture(overrides: Partial<Device> = {}): Device {
         functionFixture(6, 'mode', {state: {isOn: true}, metaData: {bleTagInfo: {bleTag: 'mode', bleOnCommand: 'auto'}}}),
         functionFixture(7, 'mode', {title: 'Heat', state: {isOn: false}, metaData: {bleTagInfo: {bleTag: 'mode', bleOnCommand: 'heat'}}}),
         functionFixture(8, 'mode', {title: 'Cool', state: {isOn: false}, metaData: {bleTagInfo: {bleTag: 'mode', bleOnCommand: 'cool'}}}),
+        functionFixture(364, 'powerfull', {title: 'Turbo', state: {isOn: false}, metaData: {bleTagInfo: {bleTag: 'powerfull', bleOnCommand: 'on'}}}),
       ],
     }],
     deviceInfo: {brand: 'Test', seria: 'Series', model: 'Model'},
     title: 'Test device',
     ...overrides,
+  };
+}
+
+function deviceWithTurbo(isOn: boolean, overrides: Partial<Device> = {}): Device {
+  const device = deviceFixture(overrides);
+  return {
+    ...device,
+    pult: [{
+      functions: device.pult[0].functions.map(pultFunction => pultFunction.id === 364
+        ? {...pultFunction, state: {...pultFunction.state, isOn}}
+        : pultFunction),
+    }],
   };
 }
 
@@ -244,7 +257,7 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
       'HAP SET: device=1001, characteristic=TargetHeaterCoolerState, ' +
       'uuid=000000B2-0000-1000-8000-0026BB765291, iid=12, value=2, ' +
       'functionIds={IsOn:1, SetTemp:2, FanFlow:3, FanSpeedAuto:4, FanSpeed:5, ' +
-      'AutoMode:6, HeatMode:7, CoolMode:8}, ' +
+      'AutoMode:6, HeatMode:7, CoolMode:8, Turbo:364}, ' +
       'characteristicIids={Active:10, TargetHeaterCoolerState:12, CurrentHeaterCoolerState:11, ' +
       'CurrentTemperature:13, CoolingThresholdTemperature:14, HeatingThresholdTemperature:15, ' +
       'SwingMode:16, RotationSpeed:17}',
@@ -267,7 +280,7 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
     expect(platform.log.debug).toHaveBeenCalledWith(
       'HAP REFRESH: device=1001, ' +
       'functionIds={IsOn:1, SetTemp:2, FanFlow:3, FanSpeedAuto:4, FanSpeed:5, ' +
-      'AutoMode:6, HeatMode:7, CoolMode:8}, ' +
+      'AutoMode:6, HeatMode:7, CoolMode:8, Turbo:364}, ' +
       'characteristicIids={Active:10, TargetHeaterCoolerState:12, CurrentHeaterCoolerState:11, ' +
       'CurrentTemperature:13, CoolingThresholdTemperature:14, HeatingThresholdTemperature:15, ' +
       'SwingMode:16, RotationSpeed:17}, ' +
@@ -275,7 +288,7 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
       'CurrentTemperature:22, CoolingThresholdTemperature:22, HeatingThresholdTemperature:22, ' +
       'SwingMode:0, RotationSpeed:40}, ' +
       'state={powerState:true, curTemp:22, setTemp:22, mode:auto, fanSpeed:2, ' +
-      'autoFanSpeedIsOn:false, swingMode:false}',
+      'autoFanSpeedIsOn:false, swingMode:false, turboModeIsOn:false}',
     );
   });
 
@@ -323,6 +336,116 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
     await expect(rotationSpeed.getHandler!()).resolves.toBe(40);
     await expect(rotationSpeed.setHandler!(60)).resolves.toBeUndefined();
     expect(controlDevice).toHaveBeenCalledWith(1001, CtrlMode.FanSpeed, 5, 3);
+  });
+
+  it('disables active Turbo before changing the manual fan speed', async () => {
+    const controlDevice = vi.fn().mockResolvedValue(deviceWithTurbo(false));
+    const {identifiers, characteristics} = createAccessory(controlDevice, {device: deviceWithTurbo(true)});
+
+    await expect(characteristics.get(identifiers.RotationSpeed)!.setHandler!(60)).resolves.toBeUndefined();
+
+    expect(controlDevice).toHaveBeenCalledTimes(2);
+    expect(controlDevice).toHaveBeenNthCalledWith(1, 1001, CtrlMode.Turbo, 364, false);
+    expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.FanSpeed, 5, 3);
+  });
+
+  it('disables active Turbo before enabling automatic fan speed', async () => {
+    const controlDevice = vi.fn().mockResolvedValue(deviceWithTurbo(false));
+    const {identifiers, characteristics} = createAccessory(controlDevice, {device: deviceWithTurbo(true)});
+
+    await expect(characteristics.get(identifiers.RotationSpeed)!.setHandler!(0)).resolves.toBeUndefined();
+
+    expect(controlDevice).toHaveBeenCalledTimes(2);
+    expect(controlDevice).toHaveBeenNthCalledWith(1, 1001, CtrlMode.Turbo, 364, false);
+    expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.FanSpeedAuto, 4, true);
+  });
+
+  it('changes fan speed directly when Turbo is inactive or unavailable', async () => {
+    const inactiveControl = vi.fn().mockResolvedValue(deviceFixture());
+    const inactive = createAccessory(inactiveControl, {device: deviceWithTurbo(false)});
+    const withoutTurbo = deviceFixture({pult: [{
+      functions: deviceFixture().pult[0].functions.filter(pultFunction => pultFunction.id !== 364),
+    }]});
+    const absentControl = vi.fn().mockResolvedValue(withoutTurbo);
+    const absent = createAccessory(absentControl, {device: withoutTurbo});
+
+    await inactive.characteristics.get(inactive.identifiers.RotationSpeed)!.setHandler!(60);
+    await absent.characteristics.get(absent.identifiers.RotationSpeed)!.setHandler!(60);
+
+    expect(inactiveControl).toHaveBeenCalledTimes(1);
+    expect(inactiveControl).toHaveBeenCalledWith(1001, CtrlMode.FanSpeed, 5, 3);
+    expect(absentControl).toHaveBeenCalledTimes(1);
+    expect(absentControl).toHaveBeenCalledWith(1001, CtrlMode.FanSpeed, 5, 3);
+  });
+
+  it('does not change fan speed when disabling Turbo fails', async () => {
+    const controlDevice = vi.fn().mockRejectedValue(new Error('turbo failed'));
+    const {identifiers, characteristics} = createAccessory(controlDevice, {device: deviceWithTurbo(true)});
+
+    await expect(characteristics.get(identifiers.RotationSpeed)!.setHandler!(60)).rejects.toThrow('turbo failed');
+
+    expect(controlDevice).toHaveBeenCalledTimes(1);
+    expect(controlDevice).toHaveBeenCalledWith(1001, CtrlMode.Turbo, 364, false);
+  });
+
+  it('does not disable Turbo when the displayed fan speed did not change', async () => {
+    const controlDevice = vi.fn().mockResolvedValue(deviceWithTurbo(false));
+    const {identifiers, characteristics} = createAccessory(controlDevice, {device: deviceWithTurbo(true)});
+
+    await expect(characteristics.get(identifiers.RotationSpeed)!.setHandler!(40)).resolves.toBeUndefined();
+
+    expect(controlDevice).not.toHaveBeenCalled();
+  });
+
+  it('uses the latest Turbo state received by the common device update path', async () => {
+    const controlDevice = vi.fn().mockResolvedValue(deviceWithTurbo(false));
+    const {handler, identifiers, characteristics} = createAccessory(controlDevice, {device: deviceWithTurbo(false)});
+    handler.updateDeviceState({
+      id: 1001,
+      pult: [{functions: [functionFixture(364, 'powerfull', {
+        title: 'Turbo',
+        state: {isOn: true},
+        metaData: {bleTagInfo: {bleTag: 'powerfull', bleOnCommand: 'on'}},
+      })]}],
+    });
+
+    await characteristics.get(identifiers.RotationSpeed)!.setHandler!(60);
+
+    expect(controlDevice).toHaveBeenNthCalledWith(1, 1001, CtrlMode.Turbo, 364, false);
+    expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.FanSpeed, 5, 3);
+  });
+
+  it('keeps the last valid Turbo state after an unusable or sparse update', async () => {
+    const controlDevice = vi.fn().mockResolvedValue(deviceWithTurbo(false));
+    const {handler, identifiers, characteristics} = createAccessory(controlDevice, {device: deviceWithTurbo(true)});
+    handler.updateDeviceState({
+      id: 1001,
+      pult: [{functions: [functionFixture(364, 'powerfull', {
+        title: 'Turbo',
+        state: {isOn: null as never},
+        metaData: {bleTagInfo: {bleTag: 'powerfull', bleOnCommand: 'on'}},
+      })]}],
+    });
+    handler.updateDeviceState({id: 1001, curTemp: 23});
+
+    await characteristics.get(identifiers.RotationSpeed)!.setHandler!(60);
+
+    expect(controlDevice).toHaveBeenNthCalledWith(1, 1001, CtrlMode.Turbo, 364, false);
+    expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.FanSpeed, 5, 3);
+  });
+
+  it('keeps Turbo state independent for each accessory instance', async () => {
+    const controlDevice = vi.fn().mockImplementation((deviceId: number) =>
+      Promise.resolve(deviceId === 1001 ? deviceWithTurbo(false) : deviceWithTurbo(false, {id: 1002})));
+    const first = createAccessory(controlDevice, {device: deviceWithTurbo(true)});
+    const second = createAccessory(controlDevice, {device: deviceWithTurbo(false, {id: 1002})});
+
+    await second.characteristics.get(second.identifiers.RotationSpeed)!.setHandler!(60);
+    await first.characteristics.get(first.identifiers.RotationSpeed)!.setHandler!(60);
+
+    expect(controlDevice).toHaveBeenNthCalledWith(1, 1002, CtrlMode.FanSpeed, 5, 3);
+    expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.Turbo, 364, false);
+    expect(controlDevice).toHaveBeenNthCalledWith(3, 1001, CtrlMode.FanSpeed, 5, 3);
   });
 
   it('reports zero RotationSpeed while the air conditioner is powered off', async () => {
@@ -684,6 +807,7 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
       [CtrlMode.AutoMode, expect.objectContaining({id: 6})],
       [CtrlMode.HeatMode, expect.objectContaining({id: 7})],
       [CtrlMode.CoolMode, expect.objectContaining({id: 8})],
+      [CtrlMode.Turbo, expect.objectContaining({id: 364})],
     ]));
   });
 });

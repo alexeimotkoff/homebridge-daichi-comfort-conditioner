@@ -197,6 +197,142 @@ describe('DaichiComfortHomebridgePlatform discovery lifecycle', () => {
     expect(subject.unregistered).toEqual([]);
   });
 
+  it('publishes both account devices when the configured device list is empty', async () => {
+    const firstDevice = deviceFixture({
+      id: 1001,
+      serial: 'FIRST-SERIAL',
+      title: 'Living room',
+    });
+    const secondDevice = deviceFixture({
+      id: 1002,
+      serial: 'SECOND-SERIAL',
+      title: 'Bedroom',
+    });
+    const subject = createPlatform({
+      devices: [firstDevice, secondDevice],
+      configDevices: [],
+    });
+
+    await subject.platform.discoverDevices();
+
+    expect(subject.createdAccessories).toEqual([
+      expect.objectContaining({UUID: 'uuid:FIRST-SERIAL', displayName: 'Living room'}),
+      expect.objectContaining({UUID: 'uuid:SECOND-SERIAL', displayName: 'Bedroom'}),
+    ]);
+    expect(subject.registered).toHaveLength(1);
+    expect(subject.registered[0]).toHaveLength(2);
+    expect(subject.handlerByDeviceId.has(1001)).toBe(true);
+    expect(subject.handlerByDeviceId.has(1002)).toBe(true);
+    expect(subject.platform.accessories).toHaveLength(2);
+  });
+
+  it('periodically refreshes both account devices independently', async () => {
+    vi.useFakeTimers();
+    try {
+      const firstDevice = deviceFixture({
+        id: 1001,
+        serial: 'FIRST-SERIAL',
+        title: 'Living room',
+      });
+      const secondDevice = deviceFixture({
+        id: 1002,
+        serial: 'SECOND-SERIAL',
+        title: 'Bedroom',
+      });
+      const subject = createPlatform({devices: [firstDevice, secondDevice]});
+
+      await subject.platform.discoverDevices();
+      subject.httpApi.getDevice.mockClear();
+      await vi.advanceTimersByTimeAsync(300_000);
+
+      expect(subject.httpApi.getDevice).toHaveBeenCalledTimes(2);
+      expect(subject.httpApi.getDevice).toHaveBeenCalledWith(1001);
+      expect(subject.httpApi.getDevice).toHaveBeenCalledWith(1002);
+      expect(subject.handlerByDeviceId.get(1001)?.updateDeviceState)
+        .toHaveBeenCalledWith(expect.objectContaining({id: 1001}));
+      expect(subject.handlerByDeviceId.get(1002)?.updateDeviceState)
+        .toHaveBeenCalledWith(expect.objectContaining({id: 1002}));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('publishes, routes MQTT, and periodically refreshes only the configured device', async () => {
+    vi.useFakeTimers();
+    try {
+      const firstDevice = deviceFixture({
+        id: 1001,
+        serial: 'FIRST-SERIAL',
+        title: 'Living room',
+      });
+      const secondDevice = deviceFixture({
+        id: 1002,
+        serial: 'SECOND-SERIAL',
+        title: 'Bedroom',
+      });
+      const subject = createPlatform({
+        devices: [firstDevice, secondDevice],
+        configDevices: ['Living room'],
+      });
+
+      await subject.platform.discoverDevices();
+
+      expect(subject.createdAccessories).toEqual([
+        expect.objectContaining({UUID: 'uuid:FIRST-SERIAL', displayName: 'Living room'}),
+      ]);
+      expect(subject.registered).toHaveLength(1);
+      expect(subject.registered[0]).toHaveLength(1);
+      expect(subject.handlerByDeviceId.has(1001)).toBe(true);
+      expect(subject.handlerByDeviceId.has(1002)).toBe(false);
+
+      subject.sendMqtt({...firstDevice, curTemp: 18});
+      subject.sendMqtt({...secondDevice, curTemp: 19});
+
+      expect(subject.handlerByDeviceId.get(1001)?.updateDeviceState)
+        .toHaveBeenCalledOnce();
+      expect(subject.handlerByDeviceId.get(1001)?.updateDeviceState)
+        .toHaveBeenCalledWith(expect.objectContaining({id: 1001, curTemp: 18}));
+      expect(subject.log.debug).toHaveBeenCalledWith('Ignored MQTT update for unknown device: 1002');
+
+      subject.httpApi.getDevice.mockClear();
+      await vi.advanceTimersByTimeAsync(300_000);
+
+      expect(subject.httpApi.getDevice).toHaveBeenCalledTimes(1);
+      expect(subject.httpApi.getDevice).toHaveBeenCalledWith(1001);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('removes a cached account device excluded by the configured device list', async () => {
+    const firstDevice = deviceFixture({
+      id: 1001,
+      serial: 'FIRST-SERIAL',
+      title: 'Living room',
+    });
+    const secondDevice = deviceFixture({
+      id: 1002,
+      serial: 'SECOND-SERIAL',
+      title: 'Bedroom',
+    });
+    const firstCached = {UUID: 'uuid:FIRST-SERIAL', displayName: 'Living room', context: {}};
+    const secondCached = {UUID: 'uuid:SECOND-SERIAL', displayName: 'Bedroom', context: {}};
+    const subject = createPlatform({
+      devices: [firstDevice, secondDevice],
+      configDevices: ['Living room'],
+      cached: [firstCached, secondCached],
+    });
+
+    await subject.platform.discoverDevices();
+
+    expect(subject.createdAccessories).toEqual([]);
+    expect(subject.registered).toEqual([]);
+    expect(subject.unregistered).toEqual([[secondCached]]);
+    expect(subject.platform.accessories).toEqual([firstCached]);
+    expect(subject.handlerByDeviceId.has(1001)).toBe(true);
+    expect(subject.handlerByDeviceId.has(1002)).toBe(false);
+  });
+
   it('removes cached accessories absent after successful discovery, including an empty filtered result', async () => {
     const stale = { UUID: 'uuid:STALE', displayName: 'Stale', context: {} };
     const subject = createPlatform({
@@ -289,16 +425,20 @@ describe('DaichiComfortHomebridgePlatform discovery lifecycle', () => {
   });
 
   it('starts one MQTT client after successful discovery and routes each device update by id', async () => {
-    const secondDevice = deviceFixture({ id: 1002, serial: 'SECOND-SERIAL', curTemp: 21 });
-    const subject = createPlatform({ devices: [deviceFixture(), secondDevice] });
+    const firstDevice = deviceFixture({id: 1001, serial: 'FIRST-SERIAL', curTemp: 22});
+    const secondDevice = deviceFixture({id: 1002, serial: 'SECOND-SERIAL', curTemp: 21});
+    const subject = createPlatform({devices: [firstDevice, secondDevice]});
 
     await subject.platform.discoverDevices();
     await subject.platform.discoverDevices();
-    subject.sendMqtt({ ...secondDevice, curTemp: 19 });
+    subject.sendMqtt({...firstDevice, curTemp: 18});
+    subject.sendMqtt({...secondDevice, curTemp: 19});
 
     expect(subject.mqttClient.start).toHaveBeenCalledTimes(1);
-    expect(subject.handlerByDeviceId.get(1001)?.updateDeviceState).not.toHaveBeenCalled();
-    expect(subject.handlerByDeviceId.get(1002)?.updateDeviceState).toHaveBeenCalledWith(expect.objectContaining({ curTemp: 19 }));
+    expect(subject.handlerByDeviceId.get(1001)?.updateDeviceState)
+      .toHaveBeenCalledExactlyOnceWith(expect.objectContaining({id: 1001, curTemp: 18}));
+    expect(subject.handlerByDeviceId.get(1002)?.updateDeviceState)
+      .toHaveBeenCalledExactlyOnceWith(expect.objectContaining({id: 1002, curTemp: 19}));
   });
 
   it('ignores an MQTT update for an unknown device id', async () => {

@@ -10,7 +10,7 @@ import {
 } from './models/deviceModel';
 
 const MAX_VALUE_RANGE_LENGTH = 256;
-const MQTT_FUNCTION_TAGS = new Set(['power', 'setTemp', 'flow', 'fanSpeed', 'mode']);
+const MQTT_FUNCTION_TAGS = new Set(['power', 'setTemp', 'flow', 'fanSpeed', 'mode', 'powerfull']);
 
 export function isDevice(value: unknown): value is Device {
   if (!isRecord(value) ||

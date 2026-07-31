@@ -6,5 +6,6 @@ export enum CtrlMode {
     FanSpeed,
     AutoMode,
     HeatMode,
-    CoolMode
+    CoolMode,
+    Turbo
 }

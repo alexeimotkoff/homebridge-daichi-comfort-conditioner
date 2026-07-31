@@ -242,6 +242,41 @@ describe('DaichiMqttClient', () => {
     });
   });
 
+  it('preserves the Turbo function in an MQTT update', () => {
+    const { client, mqtt } = createClient();
+    const onDeviceUpdate = vi.fn();
+    const message = {
+      devices: [{
+        id: 1001,
+        pult: [{
+          functions: [{
+            id: 364,
+            title: 'Turbo',
+            state: {isOn: true, value: null, futureState: 'ignored'},
+            metaData: {
+              bleTagInfo: {bleTag: 'powerfull', bleOnCommand: 'on', futureMetadata: 'ignored'},
+            },
+          }],
+        }],
+      }],
+    };
+
+    mqtt.start(user, onDeviceUpdate);
+    client.emit('message', 'user/7/notification', Buffer.from(JSON.stringify(message)));
+
+    expect(onDeviceUpdate).toHaveBeenCalledWith({
+      id: 1001,
+      pult: [{
+        functions: [{
+          id: 364,
+          title: 'Turbo',
+          state: {isOn: true},
+          metaData: {bleTagInfo: {bleTag: 'powerfull', bleOnCommand: 'on'}},
+        }],
+      }],
+    });
+  });
+
   it('dispatches only useful fields from devices and pult entries independently', () => {
     const { client, mqtt } = createClient();
     const onDeviceUpdate = vi.fn();

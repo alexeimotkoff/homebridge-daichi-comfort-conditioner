@@ -6,4 +6,5 @@ export class DevState {
     public swingMode = false;
     public mode = '';
     public autoFanSpeedIsOn = false;
+    public turboModeIsOn = false;
 }

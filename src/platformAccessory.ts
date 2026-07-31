@@ -43,6 +43,7 @@ const LOGGED_CONTROL_MODES = [
     CtrlMode.AutoMode,
     CtrlMode.HeatMode,
     CtrlMode.CoolMode,
+    CtrlMode.Turbo,
 ] as const;
 
 const LOGGED_HAP_CHARACTERISTICS = [
@@ -512,6 +513,7 @@ export class DaichiComfortPlatformAccessory {
             `fanSpeed:${this.state.fanSpeed}`,
             `autoFanSpeedIsOn:${this.state.autoFanSpeedIsOn}`,
             `swingMode:${this.state.swingMode}`,
+            `turboModeIsOn:${this.state.turboModeIsOn}`,
         ].join(', ');
     }
 
@@ -532,7 +534,15 @@ export class DaichiComfortPlatformAccessory {
      * Handle requests to set the "RotationSpeed" characteristic
      */
     async handleRotationSpeedSet(value: CharacteristicValue): Promise<void> {
-        if(this.state.fanSpeed !== value){
+        const currentValue = this.getStateRotationSpeed(
+            this.state.powerState,
+            this.state.autoFanSpeedIsOn,
+            this.state.fanSpeed,
+        );
+        if(currentValue !== value){
+            if(this.state.turboModeIsOn){
+                await this.ctrl(CtrlMode.Turbo, false);
+            }
             if(value === 0){
                 await this.ctrl(CtrlMode.FanSpeedAuto, true);
             } else{
@@ -575,6 +585,7 @@ export class DaichiComfortPlatformAccessory {
             const modeFunc = [funcDict.get(CtrlMode.AutoMode)!, funcDict.get(CtrlMode.HeatMode)!, funcDict.get(CtrlMode.CoolMode)!]
                 .find(x => x?.state?.isOn === true)?.metaData?.bleTagInfo?.bleOnCommand;
             const swingModeFunc = funcDict.get(CtrlMode.FanFlow)?.state?.isOn;
+            const turboModeIsOnFunc = funcDict.get(CtrlMode.Turbo)?.state?.isOn;
 
             if(isFiniteNumber(setTempFunc)){
                 this.state.setTemp = setTempFunc;
@@ -592,6 +603,9 @@ export class DaichiComfortPlatformAccessory {
             }
             if(isBoolean(swingModeFunc)){
                 this.state.swingMode = swingModeFunc;
+            }
+            if(isBoolean(turboModeIsOnFunc)){
+                this.state.turboModeIsOn = turboModeIsOnFunc;
             }
         }
     }
@@ -803,6 +817,7 @@ export class DaichiComfortPlatformAccessory {
         funcDict.set(CtrlMode.AutoMode, DaichiComfortPlatformAccessory.searchFunction('mode', functions, undefined, 'auto'));
         funcDict.set(CtrlMode.HeatMode, DaichiComfortPlatformAccessory.searchFunction('mode', functions, 'Heat', 'heat'));
         funcDict.set(CtrlMode.CoolMode, DaichiComfortPlatformAccessory.searchFunction('mode', functions, 'Cool', 'cool'));
+        funcDict.set(CtrlMode.Turbo, DaichiComfortPlatformAccessory.searchFunction('powerfull', functions, 'Turbo'));
 
         const result = new Map<CtrlMode, PultFunctionUpdate>();
         funcDict.forEach((value: PultFunctionUpdate | null, key: CtrlMode) => {
