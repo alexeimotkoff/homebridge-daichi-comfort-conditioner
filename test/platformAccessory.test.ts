@@ -813,8 +813,8 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
       characteristics.get(identifiers.RotationSpeed)!.setHandler!(60),
     ]);
 
-    expect(controlDevice).toHaveBeenCalledTimes(2);
-    expect(controlDevice).toHaveBeenCalledWith(1001, CtrlMode.IsOn, 1, true);
+    expect(controlDevice).toHaveBeenCalledTimes(1);
+    expect(controlDevice).not.toHaveBeenCalledWith(1001, CtrlMode.IsOn, 1, true);
     expect(controlDevice).toHaveBeenCalledWith(1001, CtrlMode.FanSpeed, 5, 3);
   });
 

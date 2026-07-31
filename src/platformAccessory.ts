@@ -356,7 +356,11 @@ export class DaichiComfortPlatformAccessory {
      */
     async handleActiveSet(value: CharacteristicValue): Promise<void> {
         this.platform.log.debug('Triggered SET Active:', value);
-        await this.ctrl(CtrlMode.IsOn, !!value);
+        const isOn = !!value;
+        if(isOn && this.state.powerState){
+            return;
+        }
+        await this.ctrl(CtrlMode.IsOn, isOn);
     }
 
     /**
