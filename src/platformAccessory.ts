@@ -34,6 +34,8 @@ interface FunctionCommand {
     valueRange?: number[];
 }
 
+const TURBO_SHUTDOWN_DELAY_MS = 1000;
+
 const LOGGED_CONTROL_MODES = [
     CtrlMode.IsOn,
     CtrlMode.SetTemp,
@@ -542,6 +544,7 @@ export class DaichiComfortPlatformAccessory {
         if(currentValue !== value){
             if(this.state.turboModeIsOn){
                 await this.ctrl(CtrlMode.Turbo, false);
+                await new Promise<void>(resolve => setTimeout(resolve, TURBO_SHUTDOWN_DELAY_MS));
             }
             if(value === 0){
                 await this.ctrl(CtrlMode.FanSpeedAuto, true);

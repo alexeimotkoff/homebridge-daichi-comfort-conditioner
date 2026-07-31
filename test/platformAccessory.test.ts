@@ -93,6 +93,15 @@ function deviceWithTurbo(isOn: boolean, overrides: Partial<Device> = {}): Device
   };
 }
 
+async function withFakeTimers(action: () => Promise<void>): Promise<void> {
+  vi.useFakeTimers();
+  try {
+    await action();
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
 function createAccessory(
   controlDevice = vi.fn().mockResolvedValue(deviceFixture()),
   options: { activate?: boolean; heaterServiceExists?: boolean; device?: Device } = {},
@@ -339,25 +348,57 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
   });
 
   it('disables active Turbo before changing the manual fan speed', async () => {
-    const controlDevice = vi.fn().mockResolvedValue(deviceWithTurbo(false));
-    const {identifiers, characteristics} = createAccessory(controlDevice, {device: deviceWithTurbo(true)});
+    await withFakeTimers(async () => {
+      const controlDevice = vi.fn().mockResolvedValue(deviceWithTurbo(false));
+      const {identifiers, characteristics} = createAccessory(controlDevice, {device: deviceWithTurbo(true)});
 
-    await expect(characteristics.get(identifiers.RotationSpeed)!.setHandler!(60)).resolves.toBeUndefined();
+      const setting = characteristics.get(identifiers.RotationSpeed)!.setHandler!(60);
+      await vi.runAllTimersAsync();
+      await expect(setting).resolves.toBeUndefined();
 
-    expect(controlDevice).toHaveBeenCalledTimes(2);
-    expect(controlDevice).toHaveBeenNthCalledWith(1, 1001, CtrlMode.Turbo, 364, false);
-    expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.FanSpeed, 5, 3);
+      expect(controlDevice).toHaveBeenCalledTimes(2);
+      expect(controlDevice).toHaveBeenNthCalledWith(1, 1001, CtrlMode.Turbo, 364, false);
+      expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.FanSpeed, 5, 3);
+    });
+  });
+
+  it('waits for Turbo shutdown and then one second before changing fan speed', async () => {
+    await withFakeTimers(async () => {
+      let completeTurbo!: (device: Device) => void;
+      const controlDevice = vi.fn()
+        .mockImplementationOnce(() => new Promise<Device>((resolve) => {
+          completeTurbo = resolve;
+        }))
+        .mockResolvedValue(deviceWithTurbo(false));
+      const {identifiers, characteristics} = createAccessory(controlDevice, {device: deviceWithTurbo(true)});
+
+      const setting = characteristics.get(identifiers.RotationSpeed)!.setHandler!(60);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(controlDevice).toHaveBeenCalledTimes(1);
+
+      completeTurbo(deviceWithTurbo(false));
+      await vi.advanceTimersByTimeAsync(999);
+      expect(controlDevice).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(setting).resolves.toBeUndefined();
+      expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.FanSpeed, 5, 3);
+    });
   });
 
   it('disables active Turbo before enabling automatic fan speed', async () => {
-    const controlDevice = vi.fn().mockResolvedValue(deviceWithTurbo(false));
-    const {identifiers, characteristics} = createAccessory(controlDevice, {device: deviceWithTurbo(true)});
+    await withFakeTimers(async () => {
+      const controlDevice = vi.fn().mockResolvedValue(deviceWithTurbo(false));
+      const {identifiers, characteristics} = createAccessory(controlDevice, {device: deviceWithTurbo(true)});
 
-    await expect(characteristics.get(identifiers.RotationSpeed)!.setHandler!(0)).resolves.toBeUndefined();
+      const setting = characteristics.get(identifiers.RotationSpeed)!.setHandler!(0);
+      await vi.runAllTimersAsync();
+      await expect(setting).resolves.toBeUndefined();
 
-    expect(controlDevice).toHaveBeenCalledTimes(2);
-    expect(controlDevice).toHaveBeenNthCalledWith(1, 1001, CtrlMode.Turbo, 364, false);
-    expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.FanSpeedAuto, 4, true);
+      expect(controlDevice).toHaveBeenCalledTimes(2);
+      expect(controlDevice).toHaveBeenNthCalledWith(1, 1001, CtrlMode.Turbo, 364, false);
+      expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.FanSpeedAuto, 4, true);
+    });
   });
 
   it('changes fan speed directly when Turbo is inactive or unavailable', async () => {
@@ -398,54 +439,66 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
   });
 
   it('uses the latest Turbo state received by the common device update path', async () => {
-    const controlDevice = vi.fn().mockResolvedValue(deviceWithTurbo(false));
-    const {handler, identifiers, characteristics} = createAccessory(controlDevice, {device: deviceWithTurbo(false)});
-    handler.updateDeviceState({
-      id: 1001,
-      pult: [{functions: [functionFixture(364, 'powerfull', {
-        title: 'Turbo',
-        state: {isOn: true},
-        metaData: {bleTagInfo: {bleTag: 'powerfull', bleOnCommand: 'on'}},
-      })]}],
+    await withFakeTimers(async () => {
+      const controlDevice = vi.fn().mockResolvedValue(deviceWithTurbo(false));
+      const {handler, identifiers, characteristics} = createAccessory(controlDevice, {device: deviceWithTurbo(false)});
+      handler.updateDeviceState({
+        id: 1001,
+        pult: [{functions: [functionFixture(364, 'powerfull', {
+          title: 'Turbo',
+          state: {isOn: true},
+          metaData: {bleTagInfo: {bleTag: 'powerfull', bleOnCommand: 'on'}},
+        })]}],
+      });
+
+      const setting = characteristics.get(identifiers.RotationSpeed)!.setHandler!(60);
+      await vi.runAllTimersAsync();
+      await setting;
+
+      expect(controlDevice).toHaveBeenNthCalledWith(1, 1001, CtrlMode.Turbo, 364, false);
+      expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.FanSpeed, 5, 3);
     });
-
-    await characteristics.get(identifiers.RotationSpeed)!.setHandler!(60);
-
-    expect(controlDevice).toHaveBeenNthCalledWith(1, 1001, CtrlMode.Turbo, 364, false);
-    expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.FanSpeed, 5, 3);
   });
 
   it('keeps the last valid Turbo state after an unusable or sparse update', async () => {
-    const controlDevice = vi.fn().mockResolvedValue(deviceWithTurbo(false));
-    const {handler, identifiers, characteristics} = createAccessory(controlDevice, {device: deviceWithTurbo(true)});
-    handler.updateDeviceState({
-      id: 1001,
-      pult: [{functions: [functionFixture(364, 'powerfull', {
-        title: 'Turbo',
-        state: {isOn: null as never},
-        metaData: {bleTagInfo: {bleTag: 'powerfull', bleOnCommand: 'on'}},
-      })]}],
+    await withFakeTimers(async () => {
+      const controlDevice = vi.fn().mockResolvedValue(deviceWithTurbo(false));
+      const {handler, identifiers, characteristics} = createAccessory(controlDevice, {device: deviceWithTurbo(true)});
+      handler.updateDeviceState({
+        id: 1001,
+        pult: [{functions: [functionFixture(364, 'powerfull', {
+          title: 'Turbo',
+          state: {isOn: null as never},
+          metaData: {bleTagInfo: {bleTag: 'powerfull', bleOnCommand: 'on'}},
+        })]}],
+      });
+      handler.updateDeviceState({id: 1001, curTemp: 23});
+
+      const setting = characteristics.get(identifiers.RotationSpeed)!.setHandler!(60);
+      await vi.runAllTimersAsync();
+      await setting;
+
+      expect(controlDevice).toHaveBeenNthCalledWith(1, 1001, CtrlMode.Turbo, 364, false);
+      expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.FanSpeed, 5, 3);
     });
-    handler.updateDeviceState({id: 1001, curTemp: 23});
-
-    await characteristics.get(identifiers.RotationSpeed)!.setHandler!(60);
-
-    expect(controlDevice).toHaveBeenNthCalledWith(1, 1001, CtrlMode.Turbo, 364, false);
-    expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.FanSpeed, 5, 3);
   });
 
   it('keeps Turbo state independent for each accessory instance', async () => {
-    const controlDevice = vi.fn().mockImplementation((deviceId: number) =>
-      Promise.resolve(deviceId === 1001 ? deviceWithTurbo(false) : deviceWithTurbo(false, {id: 1002})));
-    const first = createAccessory(controlDevice, {device: deviceWithTurbo(true)});
-    const second = createAccessory(controlDevice, {device: deviceWithTurbo(false, {id: 1002})});
+    await withFakeTimers(async () => {
+      const controlDevice = vi.fn().mockImplementation((deviceId: number) =>
+        Promise.resolve(deviceId === 1001 ? deviceWithTurbo(false) : deviceWithTurbo(false, {id: 1002})));
+      const first = createAccessory(controlDevice, {device: deviceWithTurbo(true)});
+      const second = createAccessory(controlDevice, {device: deviceWithTurbo(false, {id: 1002})});
 
-    await second.characteristics.get(second.identifiers.RotationSpeed)!.setHandler!(60);
-    await first.characteristics.get(first.identifiers.RotationSpeed)!.setHandler!(60);
+      await second.characteristics.get(second.identifiers.RotationSpeed)!.setHandler!(60);
+      const firstSetting = first.characteristics.get(first.identifiers.RotationSpeed)!.setHandler!(60);
+      await vi.runAllTimersAsync();
+      await firstSetting;
 
-    expect(controlDevice).toHaveBeenNthCalledWith(1, 1002, CtrlMode.FanSpeed, 5, 3);
-    expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.Turbo, 364, false);
-    expect(controlDevice).toHaveBeenNthCalledWith(3, 1001, CtrlMode.FanSpeed, 5, 3);
+      expect(controlDevice).toHaveBeenNthCalledWith(1, 1002, CtrlMode.FanSpeed, 5, 3);
+      expect(controlDevice).toHaveBeenNthCalledWith(2, 1001, CtrlMode.Turbo, 364, false);
+      expect(controlDevice).toHaveBeenNthCalledWith(3, 1001, CtrlMode.FanSpeed, 5, 3);
+    });
   });
 
   it('reports zero RotationSpeed while the air conditioner is powered off', async () => {
