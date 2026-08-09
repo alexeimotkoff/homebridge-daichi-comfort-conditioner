@@ -863,4 +863,41 @@ describe('DaichiComfortPlatformAccessory promise handlers', () => {
       [CtrlMode.Turbo, expect.objectContaining({id: 364})],
     ]));
   });
+
+  it('maps functions by protocol metadata when titles are localized', () => {
+    const baseDevice = deviceFixture();
+    const localizedTitles = new Map<number, string>([
+      [4, 'Авто'],
+      [5, 'Скорость потока'],
+      [7, 'Обогрев'],
+      [8, 'Охлаждение'],
+      [364, 'Турбо'],
+    ]);
+    const autoFanSpeed = baseDevice.pult[0].functions.find(pultFunction => pultFunction.id === 4)!;
+    const device = deviceFixture({pult: [{
+      functions: baseDevice.pult[0].functions
+        .filter(pultFunction => pultFunction.id !== autoFanSpeed.id)
+        .map(pultFunction => ({
+          ...pultFunction,
+          title: localizedTitles.get(pultFunction.id) ?? pultFunction.title,
+          ...(pultFunction.id === 5 ? {
+            linkedFunction: {...autoFanSpeed, title: localizedTitles.get(autoFanSpeed.id)},
+          } : {}),
+        })),
+    }]});
+
+    const functions = DaichiComfortPlatformAccessory.getFunctionsDict(device);
+
+    expect(functions).toEqual(new Map([
+      [CtrlMode.IsOn, expect.objectContaining({id: 1})],
+      [CtrlMode.SetTemp, expect.objectContaining({id: 2})],
+      [CtrlMode.FanFlow, expect.objectContaining({id: 3})],
+      [CtrlMode.FanSpeedAuto, expect.objectContaining({id: 4})],
+      [CtrlMode.FanSpeed, expect.objectContaining({id: 5})],
+      [CtrlMode.AutoMode, expect.objectContaining({id: 6})],
+      [CtrlMode.HeatMode, expect.objectContaining({id: 7})],
+      [CtrlMode.CoolMode, expect.objectContaining({id: 8})],
+      [CtrlMode.Turbo, expect.objectContaining({id: 364})],
+    ]));
+  });
 });

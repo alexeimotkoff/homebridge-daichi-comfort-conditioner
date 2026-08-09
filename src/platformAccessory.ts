@@ -818,13 +818,13 @@ export class DaichiComfortPlatformAccessory {
         funcDict.set(
             CtrlMode.FanSpeedAuto,
             fanSpeedFunction?.linkedFunction ??
-                DaichiComfortPlatformAccessory.searchFunction('fanSpeed', functions, 'Auto', '0'),
+                DaichiComfortPlatformAccessory.searchFunction('fanSpeed', functions, undefined, '0'),
         );
         funcDict.set(CtrlMode.FanSpeed, fanSpeedFunction);
         funcDict.set(CtrlMode.AutoMode, DaichiComfortPlatformAccessory.searchFunction('mode', functions, undefined, 'auto'));
-        funcDict.set(CtrlMode.HeatMode, DaichiComfortPlatformAccessory.searchFunction('mode', functions, 'Heat', 'heat'));
-        funcDict.set(CtrlMode.CoolMode, DaichiComfortPlatformAccessory.searchFunction('mode', functions, 'Cool', 'cool'));
-        funcDict.set(CtrlMode.Turbo, DaichiComfortPlatformAccessory.searchFunction('powerfull', functions, 'Turbo'));
+        funcDict.set(CtrlMode.HeatMode, DaichiComfortPlatformAccessory.searchFunction('mode', functions, undefined, 'heat'));
+        funcDict.set(CtrlMode.CoolMode, DaichiComfortPlatformAccessory.searchFunction('mode', functions, undefined, 'cool'));
+        funcDict.set(CtrlMode.Turbo, DaichiComfortPlatformAccessory.searchFunction('powerfull', functions, undefined, 'on'));
 
         const result = new Map<CtrlMode, PultFunctionUpdate>();
         funcDict.forEach((value: PultFunctionUpdate | null, key: CtrlMode) => {
@@ -869,10 +869,8 @@ export class DaichiComfortPlatformAccessory {
     }
 
     private static getFanSpeedFunction(device: DeviceUpdate): PultFunctionUpdate | null {
-        return DaichiComfortPlatformAccessory.searchFunction(
-            'fanSpeed',
-            DaichiComfortPlatformAccessory.getDirectFunctions(device),
-            'Fan speed',
-        );
+        return DaichiComfortPlatformAccessory.getDirectFunctions(device).find(pultFunction =>
+            pultFunction.metaData?.bleTagInfo?.bleTag === 'fanSpeed' &&
+            pultFunction.metaData?.bleTagInfo?.bleOnCommand !== '0') ?? null;
     }
 }
